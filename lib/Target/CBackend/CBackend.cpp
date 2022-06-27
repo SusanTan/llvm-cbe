@@ -1693,7 +1693,7 @@ bool CWriter::runOnModule(Module &M) {
   cnt_totalVariables = 0;
   cnt_reconstructedVariables = 0;
   bool Modified = false;
-  //findOMPFunctions(M);
+  findOMPFunctions(M);
   for (Module::iterator FI = M.begin(), FE = M.end(); FI != FE; ++FI) {
     declaredLocals.clear();
 
@@ -9293,7 +9293,7 @@ bool CWriter::RunAllAnalysis(Function &F){
   FindInductionVariableRelationships();
   preprocessIVIncrements();
   preprocessInsts2AddParenthesis(F);
-  buildIVNames();
+  //buildIVNames();
   collectNotInlinableBinOps(F);
 
    return Modified;
