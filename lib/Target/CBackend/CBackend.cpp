@@ -1693,7 +1693,7 @@ bool CWriter::runOnModule(Module &M) {
   cnt_totalVariables = 0;
   cnt_reconstructedVariables = 0;
   bool Modified = false;
-  findOMPFunctions(M);
+  //findOMPFunctions(M);
   for (Module::iterator FI = M.begin(), FE = M.end(); FI != FE; ++FI) {
     declaredLocals.clear();
 
@@ -3311,18 +3311,18 @@ std::string CWriter::GetValueName(Value *Operand, bool isDeclaration) {
 
   //SUSAN: where the vairable names are printed
   Instruction *operandInst = dyn_cast<Instruction>(Operand);
-  for(auto inst2var : IRNaming)
-    if(inst2var.first == operandInst){
-      errs() << "inst from IRNaming: " << *inst2var.first << "\n";
-      errs() << "original name : " << inst2var.second << "\n";
-      std::string var = demangleVariableName(inst2var.second);
-      errs() << "returning name: " << var << "\n";
-      if(isDeclaration){
-        errs() << "SUSAN: declaring with reconstructed name 3286: " << var << "\n";
-        cnt_reconstructedVariables++;
-      }
-      return var;
-    }
+  //for(auto inst2var : IRNaming)
+  //  if(inst2var.first == operandInst){
+  //    errs() << "inst from IRNaming: " << *inst2var.first << "\n";
+  //    errs() << "original name : " << inst2var.second << "\n";
+  //    std::string var = demangleVariableName(inst2var.second);
+  //    errs() << "returning name: " << var << "\n";
+  //    if(isDeclaration){
+  //      errs() << "SUSAN: declaring with reconstructed name 3286: " << var << "\n";
+  //      cnt_reconstructedVariables++;
+  //    }
+  //    return var;
+  //  }
   //for (auto const& [var, insts] : Var2IRs)
     //for (auto &inst : insts)
       //if(inst == operandInst) return var;
@@ -4454,7 +4454,7 @@ void CWriter::generateHeader(Module &M) {
   // Store the intrinsics which will be declared/defined below.
   SmallVector<Function *, 16> intrinsicsToDefine;
 
-  findOMPFunctions(M);
+  //findOMPFunctions(M);
 
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I) {
     /*
