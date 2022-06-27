@@ -9293,7 +9293,7 @@ bool CWriter::RunAllAnalysis(Function &F){
   FindInductionVariableRelationships();
   preprocessIVIncrements();
   preprocessInsts2AddParenthesis(F);
-  buildIVNames();
+  //buildIVNames();
   collectNotInlinableBinOps(F);
 
    return Modified;
