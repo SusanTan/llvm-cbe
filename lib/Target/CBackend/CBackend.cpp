@@ -8005,9 +8005,11 @@ void CWriter::recordTimes2bePrintedForBranch(BasicBlock* start, BasicBlock *brBl
       }
 }
 
-void CWriter::emitIfBlock(CBERegion *R, bool isElseBranch){
+void CWriter::emitIfBlock(CBERegion *R, bool doNotPrintReturn, bool isElseBranch){
     auto bbs = isElseBranch ? R->elseBBs : R->thenBBs;
     for(auto bb : bbs){
+      if(doNotPrintReturn && isa<ReturnInst>(bb->getTerminator()))
+        continue;
       errs() << "printing BB in emitIfBlock" << bb->getName() << "\n";
       if (Loop *L = LI->getLoopFor(bb)) {
         if (L->getHeader() == bb //&& L->getParentLoop() == nullptr
@@ -8222,7 +8224,7 @@ void CWriter::naturalBranchTranslation(BranchInst &I){
 
     //Case 2: only print if body
     if(trueBrOnly || returnDominated){
-      emitIfBlock(cbeRegion);
+      emitIfBlock(cbeRegion, true, false);
     }
     //Case 3: only print if body with reveresed case
     else if(falseBrOnly){
@@ -8235,13 +8237,13 @@ void CWriter::naturalBranchTranslation(BranchInst &I){
       emitIfBlock(cbeRegion);
       Out << "  } else {\n";
       //printPHICopiesForSuccessor(brBB, I.getSuccessor(1), 2);
-      emitIfBlock(cbeRegion, true);
+      emitIfBlock(cbeRegion, false, true);
     }
 
     Out << "}\n";
 
     if(returnDominated)
-      emitIfBlock(cbeRegion, true);
+      emitIfBlock(cbeRegion, false, true);
 
   Out << "\n";
 }
