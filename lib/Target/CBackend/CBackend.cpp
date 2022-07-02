@@ -7204,6 +7204,8 @@ void CWriter::printLoopNew(Loop *L) {
       }*/
 
       Out << "#pragma omp for schedule(static)";
+      if(!LP->barrier)
+        Out << " nowait";
 
       //find if there are private variables
       bool printPrivate = true;
@@ -7235,8 +7237,8 @@ void CWriter::printLoopNew(Loop *L) {
       //  printComma = true;
       //}
 
-      if(!printPrivate)
-        Out << ")";
+      //if(!printPrivate)
+      //  Out << ")";
 
       Out << "\n";
     }
