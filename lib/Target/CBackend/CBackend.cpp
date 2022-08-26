@@ -4552,7 +4552,7 @@ void CWriter::generateHeader(Module &M) {
           I->getName() == "ceil" || I->getName() == "ceilf")) ||
         I->getName() == "alloca" || I->getName() == "_alloca" ||
         I->getName() == "_chkstk" || I->getName() == "__chkstk" ||
-        I->getName() == "___chkstk_ms")
+        I->getName() == "___chkstk_ms" || I->getName() == "atoi")
       continue;
 
     if (I->hasDLLImportStorageClass())
