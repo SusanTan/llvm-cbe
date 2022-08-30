@@ -840,6 +840,46 @@ Instruction *CWriter::getIVIncrement(Loop *L, PHINode* IV) {
   return nullptr;
 }
 
+std::set<PHINode*> getInductionVariables(Loop *L, ScalarEvolution *SE){
+  std::set<PHINode*> IVs;
+  errs() << "trying to get IV for Loop:" << *L << "\n";
+  PHINode *InnerIndexVar = L->getCanonicalInductionVariable();
+  if (InnerIndexVar){
+    errs() << "SUSAN: found IV 784 " << InnerIndexVar << "\n";
+    IVs.insert(InnerIndexVar);
+  }
+
+  for (BasicBlock::iterator I = L->getHeader()->begin(); isa<PHINode>(I); ++I) {
+    PHINode *PhiVar = cast<PHINode>(I);
+    errs() << "SUSAN: phi: " << *PhiVar << "\n";
+    Type *PhiTy = PhiVar->getType();
+    if (!PhiTy->isIntegerTy() && !PhiTy->isFloatingPointTy() &&
+        !PhiTy->isPointerTy()){
+      continue;
+    }
+
+    const SCEVAddRecExpr *AddRec = nullptr;
+    if(SE->isSCEVable(PhiVar->getType()))
+        AddRec = dyn_cast<SCEVAddRecExpr>(SE->getSCEV(PhiVar));
+    if (!AddRec || !AddRec->isAffine()){
+      errs() << "SUSAN: can't find addRec\n";
+      continue;
+    }
+    //const SCEV *Step = AddRec->getStepRecurrence(*SE);
+    //if (!isa<SCEVConstant>(Step) || !isa<SCEVSequentialMinMaxExpr>(Step)){
+    //  errs() << "SUSAN: step isn't constant\n";
+    //  continue;
+    //}
+
+    // Found the induction variable.
+    // FIXME: Handle loops with more than one induction variable. Note that,
+    // currently, legality makes sure we have only one induction variable.
+    errs() << "SUSAN: find IV 809" << *PhiVar << "\n";
+    IVs.insert(PhiVar);
+  }
+  return IVs;
+}
+
 PHINode *getInductionVariable(Loop *L, ScalarEvolution *SE) {
   errs() << "trying to get IV for Loop:" << *L << "\n";
   PHINode *InnerIndexVar = L->getCanonicalInductionVariable();
@@ -1368,29 +1408,53 @@ void CWriter::preprocessSkippableBranches(Function &F){
   }
 }
 
+bool OpndIsMask (Value *opnd){
+  if(ConstantInt *consInt = dyn_cast<ConstantInt>(opnd))
+    if(consInt->getZExtValue() == 4294967295 || consInt->getZExtValue() == 34359738360)
+      return true;
+  return false;
+}
+
 void CWriter::preprocessSkippableInsts(Function &F){
   //skip ands with xFFFFFFFF
+  //replace (inst+xFFFFFFFF) & xFFFFFFFF with nameof(inst)-1
   for (inst_iterator I = inst_begin(&F), E = inst_end(&F); I != E; ++I) {
     BinaryOperator *binop = dyn_cast<BinaryOperator>(&*I);
     if(!binop) continue;
 
     auto opcode = binop->getOpcode();
-    if(opcode != Instruction::And) continue;
+    if(opcode != Instruction::And && opcode != Instruction::Add) continue;
 
-    if(ConstantInt *consInt = dyn_cast<ConstantInt>(binop->getOperand(0)))
-      if(consInt->getZExtValue() == 4294967295 || consInt->getZExtValue() == 34359738360){
+    if(opcode == Instruction::And){
+      if(OpndIsMask(binop->getOperand(0))){
         deleteAndReplaceInsts[&*I] = binop->getOperand(1);
-        continue;
+        PreprocessedNames[&*I] = std::make_pair(binop->getOperand(1), "");
+        BinaryOperator *binop2 = dyn_cast<BinaryOperator>(binop->getOperand(1));
+        if(binop2 && OpndIsMask(binop2->getOperand(0)))
+          PreprocessedNames[&*I] = std::make_pair(binop2->getOperand(1), "-2");
+        else if(binop2 && OpndIsMask(binop2->getOperand(1)))
+          PreprocessedNames[&*I] = std::make_pair(binop2->getOperand(0), "-2");
       }
-
-    if(ConstantInt *consInt = dyn_cast<ConstantInt>(binop->getOperand(1))){
-      if(consInt->getZExtValue() == 4294967295 || consInt->getZExtValue() == 34359738360){
-        errs() << "SUSAN: resgitering deleteAndReplaceInsts: " << *I << "\n";
+      else if(OpndIsMask(binop->getOperand(1))){
         deleteAndReplaceInsts[&*I] = binop->getOperand(0);
-        continue;
+        PreprocessedNames[&*I] = std::make_pair(binop->getOperand(0), "");
+        BinaryOperator *binop2 = dyn_cast<BinaryOperator>(binop->getOperand(0));
+        if(binop2 && OpndIsMask(binop2->getOperand(0)))
+          PreprocessedNames[&*I] = std::make_pair(binop2->getOperand(1), "-2");
+        else if(binop2 && OpndIsMask(binop2->getOperand(1)))
+          PreprocessedNames[&*I] = std::make_pair(binop2->getOperand(0), "-2");
+      }
+    } else {
+      if(OpndIsMask(binop->getOperand(0))){
+        PreprocessedNames[&*I] = std::make_pair(binop->getOperand(1), "-2");
+      }
+      else if(OpndIsMask(binop->getOperand(1))){
+        PreprocessedNames[&*I] = std::make_pair(binop->getOperand(0), "-2");
+        BinaryOperator *binop2 = dyn_cast<BinaryOperator>(binop->getOperand(0));
       }
     }
   }
+
   for (inst_iterator I = inst_begin(&F), E = inst_end(&F); I != E; ++I) {
     LoadInst *ld = dyn_cast<LoadInst>(&*I);
     if(!ld) continue;
@@ -2222,12 +2286,14 @@ bool CWriter::isIVIncrement(Value* V){
   Loop* L = LI->getLoopFor(inst->getParent());
   if(!L) return false;
 
-  PHINode *IV = getInductionVariable(L, SE);
-  if(!IV) return false;
-  for(unsigned i=0; i<IV->getNumIncomingValues(); ++i){
-    BasicBlock *predBB = IV->getIncomingBlock(i);
-    if(LI->getLoopFor(predBB) == L && cast<Instruction>(IV->getIncomingValue(i)) == inst)
-      return true;
+  auto IVs = getInductionVariables(L, SE);
+  if(IVs.empty()) return false;
+  for(auto IV : IVs){
+    for(unsigned i=0; i<IV->getNumIncomingValues(); ++i){
+      BasicBlock *predBB = IV->getIncomingBlock(i);
+      if(LI->getLoopFor(predBB) == L && cast<Instruction>(IV->getIncomingValue(i)) == inst)
+        return true;
+    }
   }
 
   return false;
@@ -3323,7 +3389,7 @@ std::string demangleVariableName(std::string var){
 }
 std::string CWriter::GetValueName(Value *Operand, bool isDeclaration) {
   if(isDeclaration){
-    errs() << "SUSAN: declaring 3252: " << *Operand << "\n";
+    //errs() << "SUSAN: declaring 3252: " << *Operand << "\n";
     cnt_totalVariables++;
   }
 
@@ -3461,6 +3527,12 @@ void CWriter::writeOperandInternal(Value *Operand,
         Out << "stderr";
         return;
       }
+  }
+
+  if(PreprocessedNames.find(Operand) != PreprocessedNames.end()){
+    Out << GetValueName(PreprocessedNames[Operand].first);
+    Out << PreprocessedNames[Operand].second;
+    return;
   }
 
   if(inlinedArgNames.find(Operand) != inlinedArgNames.end()){
@@ -6569,129 +6641,6 @@ void CWriter::printFunction(Function &F, bool inlineF) {
 
   std::set<BasicBlock*> delayedBBs;
 
-  /*
-   * OpenMP:
-   * Record Liveins
-   * Only prints the loop
-   */
-  //if(IS_OPENMP_FUNCTION){
-  //  //for(auto LP : LoopProfiles)
-  //  //  if(LP->isOmpLoop)
-  //  //    OMP_RecordLiveIns(LP);
-  //  //find all the local variables to declare
-  //  std::set<std::string> declaredLocals;
-  //  for(auto LP : LoopProfiles){
-  //    if(!LP->isForLoop) continue;
-  //    //if(!LP->isOmpLoop) continue;
-  //    //if(!LP->isOmpLoop){
-  //    //  bool nestedInOmpLoop = false;
-  //    //  Loop *L = LP->L->getParentLoop();
-  //    //  while(L){
-  //    //    for(auto lp : LoopProfiles)
-  //    //      if(lp->L == L && lp->isOmpLoop){
-  //    //        nestedInOmpLoop = true;
-  //    //        break;
-  //    //      }
-  //    //    if(nestedInOmpLoop) break;
-  //    //    L = L->getParentLoop();
-  //    //  }
-  //    //  //if(nestedInOmpLoop){
-  //    //  //  bool isDeclared = false;
-  //    //  //  DeclareLocalVariable(LP->IV, PrintedVar, isDeclared, declaredLocals);
-  //    //  //  errs() << "SUSAN: adding iv to declared locals: " << *LP->IV << "\n";
-  //    //  //  omp_declaredLocals[L].insert(LP->IV);
-  //    //  //  continue;
-  //    //  //}
-  //    //}
-  //    Loop *L = LP->L;
-  //    std::set<Value*> skipInsts;
-  //    bool negateCondition;
-  //    Instruction *condInst = findCondInst(L, negateCondition);
-  //    BasicBlock *condBlock = condInst->getParent();
-  //    findCondRelatedInsts(condBlock, skipInsts);
-  //    for (unsigned i = 0, e = L->getBlocks().size(); i != e; ++i) {
-  //      BasicBlock *BB = L->getBlocks()[i];
-  //      for(auto &I : *BB){
-  //        Instruction *inst = &I;
-  //        if(isInductionVariable(inst)) continue;
-  //        if(omp_SkipVals.find(inst) != omp_SkipVals.end()) continue;
-  //        //if(skipInstsForPhis.find(inst) != skipInstsForPhis.end()) continue;
-  //        //if(deadInsts.find(inst) != deadInsts.end()) continue;
-  //        if(isInlinableInst(*inst))
-  //          errs() << "SUSAN: isinlinable!! " << *inst << "\n";
-  //        if(isSkipableInst(inst) && !isInlinableInst(*inst)) continue;
-  //        errs() << "SUSAN: at 6293: " << *inst << "\n";
-  //        if(dyn_cast<PHINode>(inst)) continue;
-  //        if(skipInsts.find(cast<Value>(inst)) != skipInsts.end()) continue;
-  //        errs() << "SUSAN: at 6296: " << *inst << "\n";
-  //        //bool isDeclared = false;
-  //        //DeclareLocalVariable(inst, PrintedVar, isDeclared, declaredLocals);
-  //        //errs() << "SUSAN: declared local: " << *inst << "\n";
-  //        //if(isDeclared) omp_declaredLocals[L].insert(inst);
-  //        auto varName = GetValueName(inst);
-  //        if(declaredLocals.find(varName) == declaredLocals.end()){
-  //          if (AllocaInst *AI = isDirectAlloca(inst)) {
-  //            declaredLocals.insert(varName);
-  //            toDeclareLocal.insert(inst);
-  //            errs() << "SUSAN: to declareLocal 6391:" << *inst << "\n";
-  //          } else if (!isEmptyType(inst->getType()) && !isInlinableInst(*inst)) {
-  //            declaredLocals.insert(varName);
-  //            toDeclareLocal.insert(inst);
-  //            errs() << "SUSAN: to declareLocal 6395:" << *inst << "\n";
-  //          }
-  //        }
-  //      }
-  //    }
-
-
-  //    //in case induction variable isn't declared
-  //    //bool isDeclared = false;
-  //    //DeclareLocalVariable(LP->IV, PrintedVar, isDeclared, declaredLocals);
-  //    //if(isDeclared) omp_declaredLocals[L].insert(LP->IV);
-
-
-  //    //declare all the liveins
-  //    if(omp_liveins.find(L) != omp_liveins.end()){
-  //      for(auto livein : omp_liveins[L]){
-  //        if(isSkipableInst(livein)) continue;
-  //        if(isInductionVariable(livein)) continue;
-  //        //isDeclared = false;
-  //        //errs() << "SUSAN: declaring omp livein: " << *livein << "\n";
-  //        //DeclareLocalVariable(livein, PrintedVar, isDeclared, declaredLocals);
-  //        //toDeclareLocal.insert(livein);
-  //        //errs() << "SUSAN: to declareLocal:" << *livein << "\n";
-  //        auto varName = GetValueName(livein);
-  //        if(declaredLocals.find(varName) == declaredLocals.end()){
-  //          if (AllocaInst *AI = isDirectAlloca(livein)) {
-  //            errs() << "6420: insert livein varname: " << varName << "livein: " << *livein << "\n";
-  //            declaredLocals.insert(varName);
-  //            toDeclareLocal.insert(livein);
-  //          } else if (!isEmptyType(livein->getType()) && !isInlinableInst(*livein)) {
-  //            errs() << "6424: insert livein varname: " << varName << "livein: " << *livein << "\n";
-  //            declaredLocals.insert(varName);
-  //            toDeclareLocal.insert(livein);
-  //          }
-  //        }
-  //      }
-  //    }
-
-  //  }
-  //}
-    /*for(auto LP : LoopProfiles){
-      if(!LP->isOmpLoop) continue;
-      for(auto I : omp_liveins[LP->L]){
-        bool isDeclared = false;
-        DeclareLocalVariable(I, PrintedVar, isDeclared, declaredLocals);
-        if(isDeclared) omp_declaredLocals[LP->L].insert(I);
-      }
-    }*/
-
-   // for(auto LP : LoopProfiles)
-   //   if(LP->isOmpLoop){
-   //     errs() << "SUSAN: print omploop: " << *LP->L << "\n";
-   //     printLoopNew(LP->L);
-   //   }
-  //} else { // print basic blocks
     std::queue<BasicBlock*> toVisit;
     std::set<BasicBlock*> visited;
     toVisit.push(&F.getEntryBlock());
@@ -6718,14 +6667,6 @@ void CWriter::printFunction(Function &F, bool inlineF) {
 
       CBERegion *R = findRegionOfBlock(currBB);
       if(BranchInst *br = dyn_cast<BranchInst>(currBB->getTerminator())){
-        /*if(deadBranches.find(br) != deadBranches.end()){
-          BasicBlock *succBB = br->getSuccessor(deadBranches[br]);
-          if(visited.find(succBB) == visited.end()){
-            toVisit.push(succBB);
-            visited.insert(succBB);
-          }
-        }*/
-        //else{
           errs() << "SUSAN: br:" << *br << "\n";
           BasicBlock *succ0 = br->getSuccessor(0);
           BasicBlock *succOne = nullptr;
@@ -6751,7 +6692,6 @@ void CWriter::printFunction(Function &F, bool inlineF) {
             toVisit.push(succ1);
             visited.insert(succ1);
           }
-        //}
       } else {
 	      for (auto succ = succ_begin(currBB); succ != succ_end(currBB); ++succ){
 		      BasicBlock *succBB = *succ;
@@ -6763,7 +6703,6 @@ void CWriter::printFunction(Function &F, bool inlineF) {
         }
       }
     }
-  //}
 
   for(auto BB : delayedBBs){
     errs() << "printing BB:" << BB->getName() << "at 5964\n";
@@ -6903,7 +6842,7 @@ LoopProfile* CWriter::findLoopProfile(Loop *L){
   return nullptr;
 }
 
-void CWriter::findCondRelatedInsts(BasicBlock *skipBlock, std::set<Value*> &condRelatedInsts){
+void CWriter::findCondRelatedInsts(BasicBlock *skipBlock, std::set<Value*> &condRelatedInsts, LoopProfile *LP){
 
   if(!skipBlock) return;
 
@@ -6925,6 +6864,11 @@ void CWriter::findCondRelatedInsts(BasicBlock *skipBlock, std::set<Value*> &cond
         visited.find(usedInst) == visited.end()){
         toVisit.push(usedInst);
         visited.insert(usedInst);
+        errs() << "SUSAN: at line 6795\n ";
+        if(isIVIncrement(usedInst) ||isa<PHINode>(usedInst)
+          || isa<BranchInst>(usedInst) || isa<CmpInst>(usedInst)
+          || isInlinableInst(*usedInst) || (LP && usedInst == LP->incr))
+          continue;
         condRelatedInsts.insert(usedInst);
       }
     }
@@ -7218,9 +7162,6 @@ void CWriter::printLoopNew(Loop *L) {
   CurLoop = L;
   // FIXME: assume all omp loops are for loops
 
-  //initialize all the PHI variables
-  //initializeLoopPHIs(L);
-
   errs() << "SUSAN: start printing loop: "  << *L << "\n";
   for (unsigned i = 0, e = L->getBlocks().size(); i != e; ++i) {
     BasicBlock *BB = L->getBlocks()[i];
@@ -7246,7 +7187,7 @@ void CWriter::printLoopNew(Loop *L) {
 
       Out << "#pragma omp for schedule(static)";
       if(!LP->barrier)
-        Out << " nowait";
+       Out << " nowait";
 
       //find if there are private variables
       bool printPrivate = true;
@@ -7287,14 +7228,9 @@ void CWriter::printLoopNew(Loop *L) {
 
     std::set<Value*> condRelatedInsts;
     BasicBlock *condBlock = condInst->getParent();
-    findCondRelatedInsts(condBlock, condRelatedInsts);
+    findCondRelatedInsts(condBlock, condRelatedInsts, LP);
     for(auto condRelatedInst : condRelatedInsts){
       Instruction *inst = cast<Instruction>(condRelatedInst);
-      errs() << "SUSAN: condrelatedinst:" << *inst << "\n";
-      if(isIVIncrement(inst) ||isa<PHINode>(inst)
-          || isa<BranchInst>(inst) || isa<CmpInst>(inst)
-          || isInlinableInst(*inst) || inst == LP->incr)
-        continue;
       errs() << "SUSAN: printing condRelatedInst: " << *inst << "\n";
       printInstruction(inst);
     }
@@ -7313,7 +7249,7 @@ void CWriter::printLoopNew(Loop *L) {
     //print iv type
     Out << "uint64_t ";
 
-    errs() << "SUSAN: printing IV" << *LP->IV << "\n";
+    //errs() << "SUSAN: printing IV" << *LP->IV << "\n";
     Out << GetValueName(LP->IV, true) << " = ";
     writeOperandInternal(LP->lb);
     Out << "; ";
@@ -7337,7 +7273,7 @@ void CWriter::printLoopNew(Loop *L) {
     } else {
       errs() << "SUSAN: condInst:" << *condInst << "\n";
 
-      Out << GetValueName(condInst->getOperand(0));
+      Out << GetValueName(LP->IV);
       if(ICmpInst *icmp = dyn_cast<ICmpInst>(condInst)){
         if(!negateCondition && (icmp->getPredicate() == ICmpInst::ICMP_NE))
           Out << " < ";
@@ -7387,10 +7323,6 @@ void CWriter::printLoopNew(Loop *L) {
   for(auto condRelatedInst : condRelatedInsts){
     Instruction *inst = cast<Instruction>(condRelatedInst);
     errs() << "SUSAN: while condrelatedinst:" << *inst << "\n";
-    if(isIVIncrement(inst) ||isa<PHINode>(inst)
-        || isa<BranchInst>(inst) || isa<CmpInst>(inst)
-        || isInlinableInst(*inst) || inst == LP->incr)
-      continue;
     errs() << "SUSAN: printing while condRelatedInst: " << *inst << "\n";
     printInstruction(inst);
   }
@@ -9298,7 +9230,6 @@ bool CWriter::RunAllAnalysis(Function &F){
   omp_liveins.clear();
   if(IS_OPENMP_FUNCTION)
    omp_preprossesing(F);
-  preprocessSkippableInsts(F);
   preprocessLoopProfiles(F);
   deadBranches.clear();
   preprocessSkippableBranches(F);
@@ -9341,6 +9272,7 @@ bool CWriter::RunAllAnalysis(Function &F){
   buildIVNames();
   collectNotInlinableBinOps(F);
 
+  preprocessSkippableInsts(F);
    return Modified;
 }
 

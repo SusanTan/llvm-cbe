@@ -146,6 +146,7 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   std::set<Instruction*> notInlinableBinOps;
   std::map<Value*, Type*> type2declare;
   std::set<Instruction*> doubleGeps;
+  std::map<Value*, std::pair<Value*, std::string>> PreprocessedNames;
 
   CBERegion *topRegion;
 
@@ -400,7 +401,7 @@ private:
   void printPHIsIfNecessary(BasicBlock* BB);
   void FindLiveInsFor(Loop *L, Value *val);
   void searchForBlocksToSkip(Loop *L, std::set<BasicBlock*> &skipBlocks);
-  void findCondRelatedInsts(BasicBlock *skipBlock, std::set<Value*> &condRelatedInsts);
+  void findCondRelatedInsts(BasicBlock *skipBlock, std::set<Value*> &condRelatedInsts, LoopProfile *LP=nullptr);
   void DeclareLocalVariable(Instruction *I, bool &PrintedVar, bool &isDeclared, std::set<std::string> &declaredLocals);
   void OMP_RecordLiveIns(LoopProfile *LP);
   void keepIVUnrelatedInsts(BasicBlock *skipBB, Instruction *condInst, std::set<Instruction*> &InstsKeptFromSkipBlock);
