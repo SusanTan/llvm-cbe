@@ -129,7 +129,6 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   //std::map<PHINode*, std::set<Value*>>phis2print;
   std::map<Value*, PHINode*>InstsToReplaceByPhi;
   std::map<Loop*, std::set<Instruction*>> omp_liveins;
-  std::map<Instruction*, Value*> deleteAndReplaceInsts;
   std::map<BranchInst*, int> deadBranches;
   bool omp_declarePrivate;
   bool isSkipableInst(Instruction* inst);

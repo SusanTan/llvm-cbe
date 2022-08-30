@@ -1012,8 +1012,8 @@ void CWriter::preprossesPHIs2Print(Function &F){
         }
 
         if(Instruction *incomingInst = dyn_cast<Instruction>(phiVal)){
-          if(deleteAndReplaceInsts.find(incomingInst) != deleteAndReplaceInsts.end())
-            InstsToReplaceByPhi[deleteAndReplaceInsts[incomingInst]] = replaceVal;
+          if(PreprocessedNames.find(incomingInst) != PreprocessedNames.end())
+            InstsToReplaceByPhi[PreprocessedNames[incomingInst].first] = replaceVal;
           else
             InstsToReplaceByPhi[phiVal] = replaceVal;
         }
@@ -1184,8 +1184,8 @@ Value* CWriter::findOriginalValue(Value *val){
   valInst = dyn_cast<Instruction>(newVal);
   if(!valInst) return newVal;
 
-  if(deleteAndReplaceInsts.find(valInst) != deleteAndReplaceInsts.end())
-    newVal = deleteAndReplaceInsts[valInst];
+  if(PreprocessedNames.find(valInst) != PreprocessedNames.end())
+    newVal = PreprocessedNames[valInst].first;
   return newVal;
 }
 
@@ -1427,7 +1427,6 @@ void CWriter::preprocessSkippableInsts(Function &F){
 
     if(opcode == Instruction::And){
       if(OpndIsMask(binop->getOperand(0))){
-        deleteAndReplaceInsts[&*I] = binop->getOperand(1);
         PreprocessedNames[&*I] = std::make_pair(binop->getOperand(1), "");
         BinaryOperator *binop2 = dyn_cast<BinaryOperator>(binop->getOperand(1));
         if(binop2 && OpndIsMask(binop2->getOperand(0)))
@@ -1436,7 +1435,6 @@ void CWriter::preprocessSkippableInsts(Function &F){
           PreprocessedNames[&*I] = std::make_pair(binop2->getOperand(0), "-2");
       }
       else if(OpndIsMask(binop->getOperand(1))){
-        deleteAndReplaceInsts[&*I] = binop->getOperand(0);
         PreprocessedNames[&*I] = std::make_pair(binop->getOperand(0), "");
         BinaryOperator *binop2 = dyn_cast<BinaryOperator>(binop->getOperand(0));
         if(binop2 && OpndIsMask(binop2->getOperand(0)))
@@ -1460,7 +1458,7 @@ void CWriter::preprocessSkippableInsts(Function &F){
     if(!ld) continue;
     if(ld->getPointerOperand()->getName() == "stderr"){
       errs() << "SUSAN: added stderr to delete insts\n";
-      deleteAndReplaceInsts[&*I] = ld->getPointerOperand();
+      PreprocessedNames[&*I] = std::make_pair(ld->getPointerOperand(), "");
     }
   }
 }
@@ -3406,13 +3404,6 @@ std::string CWriter::GetValueName(Value *Operand, bool isDeclaration) {
   if(TruncInst *inst = dyn_cast<TruncInst>(Operand))
     return GetValueName(inst->getOperand(0));
 
-  if(Instruction* inst = dyn_cast<Instruction>(Operand))
-    if(deleteAndReplaceInsts.find(inst) != deleteAndReplaceInsts.end()){
-      return GetValueName(deleteAndReplaceInsts[inst]);
-    }
-
-
-
   if(inlinedArgNames.find(Operand) != inlinedArgNames.end())
     return inlinedArgNames[Operand];
 
@@ -3484,14 +3475,6 @@ std::string CWriter::GetValueName(Value *Operand, bool isDeclaration) {
 /// writeInstComputationInline - Emit the computation for the specified
 /// instruction inline, with no destination provided.
 void CWriter::writeInstComputationInline(Instruction &I, bool startExpression) {
-  if(deleteAndReplaceInsts.find(&I) != deleteAndReplaceInsts.end()){
-    if(deleteAndReplaceInsts[&I]->getName() == "stderr"){
-      Out << " stderr ";
-      return;
-    }
-    writeOperandInternal(deleteAndReplaceInsts[&I]);
-    return;
-  }
   gepStart = startExpression;
   // C can't handle non-power-of-two integer types
   unsigned mask = 0;
@@ -3530,7 +3513,7 @@ void CWriter::writeOperandInternal(Value *Operand,
   }
 
   if(PreprocessedNames.find(Operand) != PreprocessedNames.end()){
-    Out << GetValueName(PreprocessedNames[Operand].first);
+    writeOperandInternal(PreprocessedNames[Operand].first);
     Out << PreprocessedNames[Operand].second;
     return;
   }
@@ -3542,16 +3525,6 @@ void CWriter::writeOperandInternal(Value *Operand,
     Out << inlinedArgNames[Operand];
     if(valuesCast2Double.find(Operand) != valuesCast2Double.end())
       Out << ")";
-    return;
-  }
-
-  Instruction *inst = dyn_cast<Instruction>(Operand);
-  if(inst && deleteAndReplaceInsts.find(inst) != deleteAndReplaceInsts.end()){
-    if(deleteAndReplaceInsts[inst]->getName() == "stderr"){
-      Out << " stderr ";
-      return;
-    }
-    writeOperandInternal(deleteAndReplaceInsts[inst]);
     return;
   }
 
@@ -3629,12 +3602,7 @@ void CWriter::writeOperand(Value *Operand, enum OperandContext Context, bool sta
       Out << "stderr";
       return;
     }
-  /*if(PHINode *phi = dyn_cast<PHINode>(Operand)){
-    if(phis2print.find(phi) != phis2print.end()){
-      writeOperand(phis2print[phi]);
-      return;
-    }
-  }*/
+
   if(inlinedArgNames.find(Operand) != inlinedArgNames.end()){
     errs() << "SUSAN: returning inlined name 3426: " << inlinedArgNames[Operand];
     if(valuesCast2Double.find(Operand) != valuesCast2Double.end())
@@ -3642,20 +3610,7 @@ void CWriter::writeOperand(Value *Operand, enum OperandContext Context, bool sta
     Out << inlinedArgNames[Operand];
     return;
   }
-  //if(InstsToReplaceByPhi.find(Operand) != InstsToReplaceByPhi.end()){
-  //  writeOperand(InstsToReplaceByPhi[Operand]);
-  //  return;
-  //}
 
-  Instruction *inst = dyn_cast<Instruction>(Operand);
-  if(inst && deleteAndReplaceInsts.find(inst) != deleteAndReplaceInsts.end()){
-    if(deleteAndReplaceInsts[inst]->getName() == "stderr"){
-      Out << " stderr ";
-      return;
-    }
-    writeOperand(deleteAndReplaceInsts[inst]);
-    return;
-  }
 
   bool isAddressImplicit = isAddressExposed(Operand);
   // Global variables are referenced as their addresses by llvm
@@ -7121,7 +7076,7 @@ bool CWriter::isSkipableInst(Instruction* inst){
     if(omp_SkipVals.find(inst) != omp_SkipVals.end()) return true;
     //if(skipInstsForPhis.find(inst) != skipInstsForPhis.end()) return true;
     if(deadInsts.find(inst) != deadInsts.end()) return true;
-    if(deleteAndReplaceInsts.find(inst) != deleteAndReplaceInsts.end()) return true;
+    if(PreprocessedNames.find(inst) != PreprocessedNames.end()) return true;
     if(isa<PHINode>(inst)) return true;
     if(isInlinableInst(*inst)) return true;
     if(isDirectAlloca(inst)) return true;
@@ -9482,7 +9437,6 @@ void CWriter::visitCallInst(CallInst &I) {
       auto LoopProfiles_s = LoopProfiles;
       auto omp_liveins_s = omp_liveins;
       auto omp_SkipVals_s = omp_SkipVals;
-      auto deleteAndReplaceInsts_s = deleteAndReplaceInsts;
       auto deadBranches_s = deadBranches;
       auto ifBranches_s = ifBranches;
       auto backEdges_s = backEdges;
@@ -9533,7 +9487,6 @@ void CWriter::visitCallInst(CallInst &I) {
       LoopProfiles = LoopProfiles_s;
       omp_liveins = omp_liveins_s;
       omp_SkipVals = omp_SkipVals_s;
-      deleteAndReplaceInsts = deleteAndReplaceInsts_s;
       deadBranches = deadBranches_s;
       ifBranches = ifBranches_s;
       backEdges = backEdges_s;
