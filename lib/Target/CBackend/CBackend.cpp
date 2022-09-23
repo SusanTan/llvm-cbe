@@ -1077,7 +1077,84 @@ void CWriter::omp_preprossesing(Function &F){
         /*
          * OpenMP: translate omp parallel for schedule (static)
          */
-        if(ompCall->getName().contains("__kmpc_for_static_init")){
+        if(ompCall->getName().contains("__kmpc_dispatch_init")){
+          errs() << "SUSAN: found dynamic schedul!\n";
+          LoopProfile *ompLP = new LoopProfile();
+          initCI = CI;
+          omp_SkipVals.insert(cast<Value>(CI));
+          // find the value stored into lb
+          Value *lb = CI->getArgOperand(3);
+          ompLP->lbAlloca = lb;
+          ompLP->schedtype = cast<ConstantInt>(CI->getArgOperand(2))->getSExtValue();
+          ompLP->chunksize = cast<ConstantInt>(CI->getArgOperand(6))->getSExtValue();
+          for(User *U : lb->users()){
+            if(StoreInst *store = dyn_cast<StoreInst>(U))
+              lb = store->getOperand(0);
+          }
+          ompLP->lb = lb;
+
+          //find ub & incr
+          int ubOffset = 0;
+          ompLP->ub = findOriginalUb(F, CI->getArgOperand(4), initCI, finiCI, ubOffset);
+          errs() << "SUSAN: original ub: " << *(ompLP->ub) << "\n";
+          ompLP->ubOffset = ubOffset;
+          ompLP->incr = nullptr;
+          if(Argument *argument = dyn_cast<Argument>(CI->getArgOperand(5))){
+            for(auto [CI, profile] : ompFuncs){
+              if(profile->utask == &F){
+                for(auto [arg, argInput] : profile->arg2argInput){
+                  if(argument == arg){
+                    errs() << "SUSAN: found incr: " << *arg << "\n";
+                    ompLP->incr = arg;
+                  }
+                }
+              }
+            }
+          }
+          currLP = ompLP;
+        }
+        else if(ompCall->getName(). contains("__kmpc_dispatch_next")){
+          finiCI = CI;
+          Loop *ompLoop = nullptr;
+          if(finiCI->getParent() == initCI->getParent()) continue;
+          //find loop in between init and fini
+          for(auto &BB : F){
+            if(DT->dominates(initCI->getParent(), &BB)
+                && PDT->dominates(finiCI->getParent(), &BB)){
+              Loop *dominatedLoop = LI->getLoopFor(&BB);
+               if(!dominatedLoop) continue;
+
+               bool loopIsDominated = true;
+               for (unsigned i = 0, e = dominatedLoop->getBlocks().size(); i != e; ++i) {
+                 BasicBlock *domBB = dominatedLoop->getBlocks()[i];
+                 if(!DT->dominates(initCI->getParent(), domBB)
+                     || !PDT->dominates(finiCI->getParent(), domBB)){
+                   loopIsDominated = false;
+                   break;
+                 }
+               }
+
+               if(!loopIsDominated) continue;
+
+               ompLoop = dominatedLoop;
+               break;
+            }
+          }
+          assert(ompLoop && "didn't find omp loop?\n");
+          errs() << "SUSAN: omploop:" << *(ompLoop->getSubLoops()[0]) << "\n";
+          ompLoop = ompLoop->getSubLoops()[0];
+          currLP->L = ompLoop;
+          currLP->isOmpLoop = true;
+          currLP->barrier = false;
+          countBarrier = 0;
+          currLP->IV = getInductionVariable(ompLoop, SE);
+          errs() << "SUSAN: IV 1138: " << *currLP->IV << "\n";
+          currLP->IVInc = getIVIncrement(currLP->L, currLP->IV);
+          currLP->isForLoop = true;
+          currLP->isDynamicSched = true;
+          LoopProfiles.insert(currLP);
+        }
+        else if(ompCall->getName().contains("__kmpc_for_static_init")){
           LoopProfile *ompLP = new LoopProfile();
           initCI = CI;
           omp_SkipVals.insert(cast<Value>(CI));
@@ -1085,10 +1162,6 @@ void CWriter::omp_preprossesing(Function &F){
 
           // find the value stored into lb
           lb = CI->getArgOperand(4);
-          if(schedtype == 33 || schedtype == 34){
-            errs() << "SUSAN: schedtype is static!\n";
-          }
-          errs() << "chunksize: " << chunksize << "\n";
           ompLP->lbAlloca = lb;
           ompLP->schedtype = cast<ConstantInt>(CI->getArgOperand(2))->getSExtValue();
           ompLP->chunksize = cast<ConstantInt>(CI->getArgOperand(8))->getSExtValue();
@@ -1140,16 +1213,13 @@ void CWriter::omp_preprossesing(Function &F){
           currLP->barrier = false;
           countBarrier = 0;
           currLP->IV = getInductionVariable(ompLoop, SE);
+          errs() << "SUSAN: IV 1201: " << *currLP->IV << "\n";
           currLP->IVInc = getIVIncrement(currLP->L, currLP->IV);
           currLP->isForLoop = true;
+          currLP->isDynamicSched = false;
           LoopProfiles.insert(currLP);
         }
-
-
-        /*
-         * OpenMP: search for barrier call
-         */
-        if(ompCall->getName().contains("__kmpc_barrier")){
+        else if(ompCall->getName().contains("__kmpc_barrier")){
           errs() << "SUSAN: barrier call!!\n";
           countBarrier++;
           if(countBarrier>1)
@@ -1812,9 +1882,9 @@ bool CWriter::runOnModule(Module &M) {
     if(F->isDeclaration()) continue;
 
     IS_OPENMP_FUNCTION = false;
-    for(auto [call, utask] : ompFuncs){
-      errs() << "OMP FUNC: " << *utask << "\n";
-      if(utask == F)
+    for(auto [call, profile] : ompFuncs){
+      errs() << "OMP FUNC: " << *(profile->utask) << "\n";
+      if(profile->utask == F)
         IS_OPENMP_FUNCTION = true;
     }
     if(IS_OPENMP_FUNCTION) continue;
@@ -4296,19 +4366,22 @@ void CWriter::findOMPFunctions(Module &M){
             utask = dyn_cast<Function>(callInst->getArgOperand(2));
 
           errs() << "SUSAN: adding utask" << *utask << "\n";
-          ompFuncs[callInst] = utask;
+          ompFuncs[callInst] = new OMPCallProfile();
+          ompFuncs[callInst]->utask = utask;
         }
       }
     }
   }
 
   //delete argInput in a struct
-  for(auto [callInst, utask] : ompFuncs){
+  for(auto [callInst, profile] : ompFuncs){
+    auto utask = profile->utask;
     int numArgs = std::distance(utask->arg_begin(), utask->arg_end())-2;
     for(auto idx = 3; idx < numArgs+3; ++idx) {
       Value *argInput = callInst->getArgOperand(idx);
       Value *arg = utask->getArg(idx-1);
       PointerType* ty = dyn_cast<PointerType>(arg->getType());
+      profile->arg2argInput[arg] = argInput;
       if(ty)
         type2declare[argInput] = ty->getPointerElementType();
 
@@ -4604,9 +4677,9 @@ void CWriter::generateHeader(Module &M) {
      */
     bool printedOmpDec = false;
     std::set<Function*> printedFunction;
-    for(auto [call, utask] : ompFuncs)
-      if(&*I == utask && printedFunction.find(utask) == printedFunction.end()){
-        printedFunction.insert(utask);
+    for(auto [call, profile] : ompFuncs)
+      if(&*I == profile->utask && printedFunction.find(profile->utask) == printedFunction.end()){
+        printedFunction.insert(profile->utask);
         printFunctionProto(Out, &*I, 2);
         printedOmpDec = true;
       }
@@ -9382,7 +9455,7 @@ void CWriter::visitCallInst(CallInst &I) {
       Out << "//START OUTLINED\n";
       Out << "  #pragma omp parallel \n" << "{\n";
       // Create a Call to omp_outlined
-      auto utask = ompFuncs[&I];
+      auto utask = ompFuncs[&I]->utask;
 
       inlinedArgNames.clear();
       // build arg->argInput table

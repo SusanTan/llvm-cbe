@@ -76,7 +76,16 @@ typedef struct LoopProfile{
   bool isForLoop;
   int schedtype;
   int chunksize;
+  bool isDynamicSched;
 } LoopProfile;
+
+typedef struct OMPCallProfile{
+  Function *utask;
+  Value *ub;
+  Value *lb;
+  Value *incr;
+  std::map<Value*, Value*> arg2argInput;
+} OMPCallProfile;
 
 class CBEMCAsmInfo : public MCAsmInfo {
 public:
@@ -122,7 +131,7 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   std::map<SExtInst*, Instruction*> declareAsCastedType;
   //std::set<std::pair<BasicBlock*, PHINode*>> printedPHIValues;
   std::set<std::pair<BasicBlock*, PHINode*>> PHIValues2Print;
-  std::map<CallInst*, Function*> ompFuncs;
+  std::map<CallInst*, OMPCallProfile*> ompFuncs;
   std::set<Value*> omp_SkipVals;
   bool IS_OPENMP_FUNCTION;
   std::set<LoopProfile*> LoopProfiles;
