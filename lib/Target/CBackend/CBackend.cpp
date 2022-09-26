@@ -10926,18 +10926,20 @@ void CWriter::visitStoreInst(StoreInst &I) {
     auto ptrVal = gep2->getPointerOperand();
     Out << GetValueName(ptrVal);
     auto firstIdx = gep->getOperand(1);
+    errs() << "SUSAN: gep 10928: " << *gep << "\n";
+    errs() << "SUSAN:writing first index: "<< *firstIdx << "\n";
     Out << "[";
     if(ConstantInt *idx = dyn_cast<ConstantInt>(firstIdx))
       Out << idx->getSExtValue();
    else
-      Out << GetValueName(firstIdx);
+      writeOperand(firstIdx);
 
     auto secondIdx = gep2->getOperand(1);
     Out << "+";
     if(ConstantInt *idx = dyn_cast<ConstantInt>(secondIdx))
       Out << idx->getSExtValue();
    else
-      Out << GetValueName(firstIdx);
+      writeOperand(secondIdx);
 
    Out << "]";
   }
