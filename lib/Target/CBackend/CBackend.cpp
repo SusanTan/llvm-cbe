@@ -1707,7 +1707,7 @@ void CWriter::findDoubleGEP(Function &F){
           //if(!isa<GetElementPtrInst>(gep2->getPointerOperand()) &&
           //    (valuesCast2Double.find(gep2->getPointerOperand()) == valuesCast2Double.end()) &&
           //    !ptrTy->getPointerElementType()->isDoubleTy())
-            doubleGeps.insert(ld);
+            doubleGeps[ld] = gep2->getPointerOperand();
         }
       }
     } else{
@@ -1724,7 +1724,7 @@ void CWriter::findDoubleGEP(Function &F){
           //    !ptrTy->getPointerElementType()->isDoubleTy())
           //    (valuesCast2Double.find(gep2->getPointerOperand()) == valuesCast2Double.end()) &&
           //    !ptrTy->getPointerElementType()->isDoubleTy())
-            doubleGeps.insert(st);
+            doubleGeps[st] = gep2->getPointerOperand();
         }
       }
     }
@@ -3466,10 +3466,20 @@ void CWriter::writeOperandInternal(Value *Operand,
 
   if(inlinedArgNames.find(Operand) != inlinedArgNames.end()){
     errs() << "SUSAN: returning inlined name 3339: " << inlinedArgNames[Operand];
-    if(valuesCast2Double.find(Operand) != valuesCast2Double.end())
+    errs() << "SUSAN: operand: " << *Operand << "\n";
+    bool printDouble = false;
+    if(valuesCast2Double.find(Operand) != valuesCast2Double.end()){
+      printDouble = true;
+      for(auto [ld, object] : doubleGeps)
+        if(object == Operand){
+          printDouble = false;
+          break;
+        }
+    }
+    if(printDouble)
       Out << "((double*)";
     Out << inlinedArgNames[Operand];
-    if(valuesCast2Double.find(Operand) != valuesCast2Double.end())
+    if(printDouble)
       Out << ")";
     return;
   }
@@ -3566,7 +3576,16 @@ void CWriter::writeOperand(Value *Operand, enum OperandContext Context, bool sta
   }*/
   if(inlinedArgNames.find(Operand) != inlinedArgNames.end()){
     errs() << "SUSAN: returning inlined name 3426: " << inlinedArgNames[Operand];
-    if(valuesCast2Double.find(Operand) != valuesCast2Double.end())
+    bool printDouble = false;
+    if(valuesCast2Double.find(Operand) != valuesCast2Double.end()){
+      printDouble = true;
+      for(auto [ld, object] : doubleGeps)
+        if(object == Operand){
+          printDouble = false;
+          break;
+        }
+    }
+    if(printDouble)
       Out << "(double*)";
     Out << inlinedArgNames[Operand];
     return;
