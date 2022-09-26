@@ -145,7 +145,8 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   std::map<Value*, std::string> IV2Name;
   std::set<Instruction*> notInlinableBinOps;
   std::map<Value*, Type*> type2declare;
-  std::set<Instruction*> doubleGeps;
+  std::map<Instruction*, Value*> doubleGeps;
+  std::map<Value*, Type*> mallocType;
 
   CBERegion *topRegion;
 
@@ -428,6 +429,7 @@ private:
   void buildInlinedArgsTable(Function &F);
   void collectNotInlinableBinOps(Function &F);
   void findDoubleGEP(Function &F);
+  void findMallocType(Function &F);
 
 
   void writeOperandDeref(Value *Operand);

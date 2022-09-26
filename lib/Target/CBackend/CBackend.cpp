@@ -7563,6 +7563,9 @@ if( NATURAL_CONTROL_FLOW ){
             if(argInputName == varName)
               typeName = type;
           }
+          if(mallocType.find(&*II) != mallocType.end()){
+            typeName = mallocType[&*II];
+          }
           printTypeName(Out, typeName, false) << ' ';
           errs() << "SUSAN: printing varname 7310: " << varName << "\n";
           if(!IS_OPENMP_FUNCTION)
@@ -9297,6 +9300,125 @@ void CWriter::omp_searchForUsesToDelete(std::set<Value*> values2delete, Function
   }
 }
 
+void  MallocRelatedToArgInput(Value *argInput, std::set<Value*> doubleMallocs, std::map<Value*, int> &malloc2idx){
+  std::map<int, Value*>gep2Object;
+  std::map<int, int>gep2typeWidth;
+  std::map<int, int>gep2Align;
+  for(auto U : argInput->users()){
+    GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(U);
+    if(!gep) continue;
+    ConstantInt *constint = dyn_cast<ConstantInt>(gep->getOperand(2));
+    auto extractedIdx = constint->getSExtValue();
+    StructType *sourceElTy = dyn_cast<StructType>(gep->getSourceElementType());
+    Type* ty = sourceElTy->getElementType(extractedIdx);
+    if(ty->isDoubleTy() || ty->isPointerTy())
+      gep2typeWidth[extractedIdx] = 8;
+    else if(IntegerType *intTy = dyn_cast<IntegerType>(ty))
+      gep2typeWidth[extractedIdx] = intTy->getBitWidth() / 8;
+
+    for(auto bitcastU : gep->users())
+      if(BitCastInst *bitcast = dyn_cast<BitCastInst>(bitcastU))
+        for(auto storeU : bitcast->users()){
+          if(StoreInst *store = dyn_cast<StoreInst>(storeU)){
+            gep2Object[extractedIdx] = store->getOperand(0);
+            gep2Align[extractedIdx] = store->getAlignment();
+
+          }
+      } else if(StoreInst *store = dyn_cast<StoreInst>(bitcastU)){
+        gep2Object[extractedIdx] = store->getOperand(0);
+        gep2Align[extractedIdx] = store->getAlignment();
+      }
+  }
+
+  //figure out the stored location
+  int currentIdx = 0;
+  for(auto [index, object] : gep2Object){
+    if(currentIdx % gep2Align[index])
+      currentIdx = (currentIdx / gep2Align[index] + 1) * gep2Align[index];
+    for(auto mallocInst : doubleMallocs){
+      if(object == mallocInst){
+        malloc2idx[mallocInst] = currentIdx;
+      }
+    }
+    currentIdx += gep2typeWidth[index];
+  }
+}
+
+void Arg2Args(Value *arg, std::map<Value*, int> &args){
+  for(auto U : arg->users()){
+    Instruction* inst = dyn_cast<Instruction>(U);
+    if(!inst) continue;
+    if(isa<CastInst>(inst)){
+      for(auto ldU : inst->users()){
+        LoadInst* ld = dyn_cast<LoadInst>(ldU);
+        if(!ld) continue;
+        args[ld] = 0;
+        errs() << "SUSAN: found load for struct 9084: 0" << *ld << "\n";
+      }
+    }
+
+    if(GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(inst)){
+      ConstantInt *constint = dyn_cast<ConstantInt>(gep->getOperand(1));
+      auto argidx = constint->getSExtValue();
+      for(auto castU : gep->users()){
+        CastInst *cast = dyn_cast<CastInst>(castU);
+        if(!cast) continue;
+        for(auto ldU : cast->users()){
+          LoadInst *ld = dyn_cast<LoadInst>(ldU);
+          if(!ld) continue;
+          args[ld] = argidx;
+          errs() << "SUSAN: argidx: " << argidx << "\n";
+          errs() << "Load: " << *ld << "\n";
+        }
+      }
+    }
+  }
+}
+
+void CWriter::findMallocType(Function &F){
+  std::set<Value*> doubleMallocs;
+  for (inst_iterator I = inst_begin(&F), E = inst_end(&F); I != E; ++I) {
+    Instruction *inst = &*I;
+    if(CallInst *CI = dyn_cast<CallInst>(inst))
+      if(Function *F = CI->getCalledFunction())
+        if(F->getName() == "malloc")
+          for(auto user : CI->users()){
+            BitCastInst *castInst = dyn_cast<BitCastInst>(user);
+            if(castInst){
+              PointerType *ptrTy = dyn_cast<PointerType>(castInst->getDestTy());
+              if(ptrTy && ptrTy->getElementType()->isDoubleTy()){
+                errs() << "SUSAN: found double mallocs! \n";
+                errs() << "malloc:" << *CI << "\n";
+                errs() << "castInst: " << *castInst << "\n";
+                doubleMallocs.insert(CI);
+              }
+            }
+          }
+  }
+
+  for(auto [call, utask] : ompFuncs){
+    int numArgs = std::distance(utask->arg_begin(), utask->arg_end())-2;
+    for(auto idx = 3; idx < numArgs+3; ++idx) {
+      Value *argInput = call->getArgOperand(idx);
+      Value *arg = utask->getArg(idx-1);
+      PointerType* ptrTy = dyn_cast<PointerType>(argInput->getType());
+      if(ptrTy && isa<StructType>(ptrTy->getPointerElementType())){
+        std::map<Value*, int> malloc2idx, args;
+        MallocRelatedToArgInput(argInput, doubleMallocs, malloc2idx);
+        Arg2Args(arg, args);
+        for(auto [malloc, idx] : malloc2idx){
+          for(auto [ld, idx2] : args){
+            if(idx2 == idx){
+              errs() << "SUSAN: tagged malloc " << *malloc << " with type: " << *ld->getType();
+              mallocType[malloc] = ld->getType();
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 bool CWriter::RunAllAnalysis(Function &F){
   LI = &getAnalysis<LoopInfoWrapperPass>(F).getLoopInfo();
   PDT = &getAnalysis<PostDominatorTreeWrapperPass>(F).getPostDomTree();
@@ -9360,6 +9482,7 @@ bool CWriter::RunAllAnalysis(Function &F){
   preprocessInsts2AddParenthesis(F);
   buildIVNames();
   collectNotInlinableBinOps(F);
+  findMallocType(F);
 
    return Modified;
 }
@@ -9413,6 +9536,7 @@ void CWriter::omp_findInlinedStructInputs(Value* argInput, std::map<int, Value*>
     currentIdx += gep2typeWidth[idx];
   }
 }
+
 
 void CWriter::omp_findCorrespondingUsesOfStruct(Value* arg, std::map<int, Value*> &args){
   errs() << "SUSAN: trying to find corresponding uses: " << *arg << "\n";
