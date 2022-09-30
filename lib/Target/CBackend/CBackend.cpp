@@ -6333,7 +6333,8 @@ void CWriter::printFunction(Function &F, bool inlineF) {
   for (inst_iterator I = inst_begin(&F), E = inst_end(&F); I != E; ++I) {
     if(CallInst* CI = dyn_cast<CallInst>(&*I)){
       if(Function *F = CI->getCalledFunction()){
-        if (F->getIntrinsicID() == Intrinsic::dbg_value){
+        if (F->getIntrinsicID() == Intrinsic::dbg_value
+            || F->getIntrinsicID() == Intrinsic::dbg_declare){
             Metadata *valMeta = cast<MetadataAsValue>(CI->getOperand(0))->getMetadata();
             Metadata *varMeta = cast<MetadataAsValue>(CI->getOperand(1))->getMetadata();
             DILocalVariable *var = dyn_cast<DILocalVariable>(varMeta);
