@@ -74,6 +74,7 @@ typedef struct LoopProfile{
   bool barrier;
   Value* lbAlloca;
   bool isForLoop;
+  int nestlevel;
 } LoopProfile;
 
 class CBEMCAsmInfo : public MCAsmInfo {
@@ -95,7 +96,7 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   std::set<Value*> valuesCast2Double;
 
   // SUSAN: tables for variable preservation
-  std::set<std::pair<Instruction*, std::string>> IRNaming;
+  std::set<std::pair<Value*, std::string>> IRNaming;
   std::set<std::string>allVars, phiVars;
   //std::set<BasicBlock*>printedBBs;
   std::map<BasicBlock*, int> times2bePrinted;
@@ -147,6 +148,7 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   std::map<Value*, Type*> type2declare;
   std::map<Instruction*, Value*> doubleGeps;
   std::map<Value*, Type*> mallocType;
+  std::map<Function*, int> FunctionTopLoopLevels;
 
   CBERegion *topRegion;
 

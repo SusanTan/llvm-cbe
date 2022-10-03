@@ -1095,6 +1095,7 @@ void CWriter::omp_preprossesing(Function &F){
           currLP->IV = getInductionVariable(ompLoop, SE);
           currLP->IVInc = getIVIncrement(currLP->L, currLP->IV);
           currLP->isForLoop = true;
+          currLP->nestlevel = -1;
           LoopProfiles.insert(currLP);
         }
 
@@ -1221,6 +1222,7 @@ void CWriter::preprocessLoopProfiles(Function &F){
     //LP->ub = nullptr; //note: ub is included in condinst unless it is a omp loop
     LP->isOmpLoop = false;
 
+    LP->nestlevel = -1;
     LoopProfiles.insert(LP);
 
     loops.insert(loops.end(), L->getSubLoops().begin(),
@@ -1668,8 +1670,24 @@ void CWriter::preprocessInsts2AddParenthesis(Function &F){
 }
 
 void CWriter::buildIVNames(){
+  for(auto [callInst, utask] : ompFuncs){
+    auto L = LI->getLoopFor(callInst->getParent());
+    if(!L) continue;
+    errs() << "SUSAN: found loop over callInst " << *callInst << "\n";
+    errs() << "depth " << L->getLoopDepth() << "\n";
+    errs() << "SUSAN: utask: " << *utask << "\n";
+    FunctionTopLoopLevels[utask] = L->getLoopDepth();
+  }
+
   for(auto LP : LoopProfiles){
     char nestLevel = LP->L->getLoopDepth() - 1;
+    auto F = LP->L->getHeader()->getParent();
+    errs() << "SUSAN: function 1685: " << *F << "\n";
+    if(FunctionTopLoopLevels.find(F) != FunctionTopLoopLevels.end()){
+      nestLevel += FunctionTopLoopLevels[F];
+      errs() << "SUSAN: adding loop level to loop in Function: " << *F << "\n";
+    }
+
     char name[2] = {'i'+nestLevel, '\0'};
     IV2Name[LP->IV] = name;
     IV2Name[LP->IVInc] = name;
@@ -3352,9 +3370,8 @@ std::string CWriter::GetValueName(Value *Operand, bool isDeclaration) {
     return inlinedArgNames[Operand];
 
   //SUSAN: where the vairable names are printed
-  Instruction *operandInst = dyn_cast<Instruction>(Operand);
   for(auto inst2var : IRNaming)
-    if(inst2var.first == operandInst){
+    if(inst2var.first == Operand){
       errs() << "inst from IRNaming: " << *inst2var.first << "\n";
       errs() << "original name : " << inst2var.second << "\n";
       std::string var = demangleVariableName(inst2var.second);
@@ -6277,59 +6294,9 @@ void CWriter::printFunction(Function &F, bool inlineF) {
   iterator_range<Function::arg_iterator> args = F.args();
 
 
-  /*
-   * OpenMP: remove first two args from outline
-   */
-  if(!inlineF){
-    if(IS_OPENMP_FUNCTION)
-      printFunctionProto(Out, FTy,
-                     std::make_pair(F.getAttributes(), F.getCallingConv()),
-                     Name, &args, 2);
-    else
-      printFunctionProto(Out, FTy,
-                     std::make_pair(F.getAttributes(), F.getCallingConv()),
-                     Name, &args);
-
-    Out << " {\n";
-
-    if (shouldFixMain) {
-      // Cast the arguments to main() to the expected LLVM IR types and names.
-      unsigned Idx = 1;
-      FunctionType::param_iterator I = FTy->param_begin(), E = FTy->param_end();
-      Function::arg_iterator ArgName = args.begin();
-
-      for (; I != E; ++I) {
-        Type *ArgTy = *I;
-        Out << "  ";
-        printTypeName(Out, ArgTy);
-        Out << ' ' << GetValueName(ArgName) << " = (";
-        printTypeName(Out, ArgTy);
-        Out << ")" << MainArgs.begin()[Idx].second << ";\n";
-
-        ++Idx;
-        ++ArgName;
-      }
-    }
-  }
-
-  // If this is a struct return function, handle the result with magic.
-  if (isStructReturn) {
-    Type *StructTy =
-        cast<PointerType>(F.arg_begin()->getType())->getElementType();
-    Out << "  ";
-    printTypeName(Out, StructTy, false)
-        << " StructReturn;  /* Struct return temporary */\n";
-
-    Out << "  ";
-    printTypeName(Out, F.arg_begin()->getType(), false);
-    Out << GetValueName(F.arg_begin()) << " = &StructReturn;\n";
-  }
-
-  bool PrintedVar = false;
-
   //SUSAN: build a variable - IR table
-  std::map<Instruction*, std::set<std::string>>IR2vars;
-  std::map<std::string,std::set<Instruction*>>Var2IRs;
+  std::map<Value*, std::set<std::string>>IR2vars;
+  std::map<std::string,std::set<Value*>>Var2IRs;
   for (inst_iterator I = inst_begin(&F), E = inst_end(&F); I != E; ++I) {
     if(CallInst* CI = dyn_cast<CallInst>(&*I)){
       if(Function *F = CI->getCalledFunction()){
@@ -6342,13 +6309,26 @@ void CWriter::printFunction(Function &F, bool inlineF) {
             std::string varName = var->getName().str();
             if (isa<ValueAsMetadata>(valMeta)){
               Value *valV = cast<ValueAsMetadata>(valMeta)->getValue();
-              if (Instruction *valInst = dyn_cast<Instruction>(valV)){
+              if(Argument *arg = dyn_cast<Argument>(valV)){
+                errs() << "SUSAN: found argument 6346: " << *valV << "\n";
+                if( Var2IRs.find(varName) == Var2IRs.end() )
+                  Var2IRs[varName] = std::set<Value*>();
+                Var2IRs[varName].insert(arg);
+                allVars.insert(varName);
 
+                // build IR -> Vars table
+                if(IR2vars.find(arg) == IR2vars.end() )
+                  IR2vars[arg] = std::set<std::string>();
+                IR2vars[arg].insert(varName);
+
+                //try: build just IRNaming
+                IRNaming.insert(std::make_pair(arg, varName));
+              } else if (Instruction *valInst = dyn_cast<Instruction>(valV)){
                 if(isa<TruncInst>(valInst) || isa<BitCastInst>(valInst))
                   valInst = dyn_cast<Instruction>(valInst->getOperand(0));
 
                 if( Var2IRs.find(varName) == Var2IRs.end() )
-                  Var2IRs[varName] = std::set<Instruction*>();
+                  Var2IRs[varName] = std::set<Value*>();
                 Var2IRs[varName].insert(valInst);
 
                 allVars.insert(varName);
@@ -6467,7 +6447,7 @@ void CWriter::printFunction(Function &F, bool inlineF) {
   // find the contradicting cases and delete them in Var2IRs table
   // Contradicting: if at any instruction I1, it uses I2, but I2 has two coressponding
   // variable v1 and v2, however only v2 has value I2 at this point, then the v1 -> I2 mapping needs to be deleted
-  std::vector<std::pair<Instruction*, std::string>> instVarPair2Delete;
+  std::vector<std::pair<Value*, std::string>> instVarPair2Delete;
   for(auto &[inst, var2val]: MRVar2ValMap){
     if(isa<PHINode>(inst)) continue;
     for (unsigned i = 0, e = inst->getNumOperands(); i != e; ++i)
@@ -6550,6 +6530,57 @@ void CWriter::printFunction(Function &F, bool inlineF) {
     errs() << *inst2var.first << " -> " << inst2var.second << "\n";
   }
 
+  /*
+   * OpenMP: remove first two args from outline
+   */
+  if(!inlineF){
+    if(IS_OPENMP_FUNCTION)
+      printFunctionProto(Out, FTy,
+                     std::make_pair(F.getAttributes(), F.getCallingConv()),
+                     Name, &args, 2);
+    else
+      printFunctionProto(Out, FTy,
+                     std::make_pair(F.getAttributes(), F.getCallingConv()),
+                     Name, &args);
+
+    Out << " {\n";
+
+    //if (shouldFixMain) {
+    //  // Cast the arguments to main() to the expected LLVM IR types and names.
+    //  unsigned Idx = 1;
+    //  FunctionType::param_iterator I = FTy->param_begin(), E = FTy->param_end();
+    //  Function::arg_iterator ArgName = args.begin();
+
+    //  for (; I != E; ++I) {
+    //    Type *ArgTy = *I;
+    //    Out << "  ";
+    //    printTypeName(Out, ArgTy);
+    //    Out << ' ' << GetValueName(ArgName) << " = (";
+    //    printTypeName(Out, ArgTy);
+    //    Out << ")" << MainArgs.begin()[Idx].second << ";\n";
+
+    //    ++Idx;
+    //    ++ArgName;
+    //  }
+    //}
+  }
+
+  // If this is a struct return function, handle the result with magic.
+  if (isStructReturn) {
+    Type *StructTy =
+        cast<PointerType>(F.arg_begin()->getType())->getElementType();
+    Out << "  ";
+    printTypeName(Out, StructTy, false)
+        << " StructReturn;  /* Struct return temporary */\n";
+
+    Out << "  ";
+    printTypeName(Out, F.arg_begin()->getType(), false);
+    Out << GetValueName(F.arg_begin()) << " = &StructReturn;\n";
+  }
+
+  bool PrintedVar = false;
+
+
 
   /*
    * Naturalness: avoid cast by checking the use of the variable before it's declared
@@ -6568,8 +6599,8 @@ void CWriter::printFunction(Function &F, bool inlineF) {
   for(auto signedVar : signedVars)
     for(auto inst2var : IRNaming)
       if(inst2var.second == signedVar)
-        signedInsts.insert(inst2var.first);
-
+        if(Instruction* inst = dyn_cast<Instruction>(inst2var.first))
+          signedInsts.insert(inst);
   // print local variable information for the function
   bool isDeclared = false;
   if(!IS_OPENMP_FUNCTION){
@@ -9278,7 +9309,6 @@ bool CWriter::lowerIntrinsics(Function &F) {
               if (Function *NewF = Call->getCalledFunction())
                 if (!NewF->isDeclaration())
                   prototypesToGen.push_back(NewF);
-
             break;
           }
         }
