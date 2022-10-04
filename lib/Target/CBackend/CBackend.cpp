@@ -7225,6 +7225,12 @@ void CWriter::FindLiveInsFor(Loop* L, Value *val){
   }
 }
 
+bool is_number(const std::string& s)
+{
+    return !s.empty() && std::find_if(s.begin(),
+        s.end(), [](unsigned char c) { return !std::isdigit(c); }) == s.end();
+}
+
 bool CWriter::isSkipableInst(Instruction* inst){
     if(omp_SkipVals.find(inst) != omp_SkipVals.end()) return true;
     //if(skipInstsForPhis.find(inst) != skipInstsForPhis.end()) return true;
@@ -7377,11 +7383,22 @@ void CWriter::printLoopNew(Loop *L) {
       printCmpOperator(dyn_cast<ICmpInst>(condInst), negateCondition);
 
 
-      if(UpperBoundArgs.find(LP->ub) != UpperBoundArgs.end())
-        Out << "(";
-       writeOperandInternal(LP->ub);
-      if(UpperBoundArgs.find(LP->ub) != UpperBoundArgs.end())
-        Out << " - 1)";
+      auto foldedConstant = false;
+      if(inlinedArgNames.find(LP->ub) != inlinedArgNames.end())
+        if(is_number(inlinedArgNames[LP->ub]))
+          if(UpperBoundArgs.find(LP->ub) != UpperBoundArgs.end()){
+            foldedConstant = true;
+            Out << (stoi(inlinedArgNames[LP->ub]) - 1);
+          }
+
+      if(!foldedConstant){
+        errs() << "SUSAN: printing ub-1 7388: " << *(LP->ub) << "\n";
+        if(UpperBoundArgs.find(LP->ub) != UpperBoundArgs.end())
+          Out << "(";
+        writeOperandInternal(LP->ub);
+        if(UpperBoundArgs.find(LP->ub) != UpperBoundArgs.end())
+          Out << " - 1)";
+      }
 
 
       if(LP->ubOffset)
@@ -8498,13 +8515,18 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
     } else {
       opcode = I.getOpcode();
       if(opcode == Instruction::Add || opcode == Instruction::FAdd){
-        if(addParenthesis.find(&I) != addParenthesis.end())
-          Out << "(";
-        writeOperand(I.getOperand(0), ContextCasted);
-        Out << " + ";
-        writeOperand(I.getOperand(1), ContextCasted);
-        if(addParenthesis.find(&I) != addParenthesis.end())
-          Out << ")";
+        if(ConstantInt* opnd0 = dyn_cast<ConstantInt>(I.getOperand(0))){
+          if(ConstantInt* opnd1 = dyn_cast<ConstantInt>(I.getOperand(1)))
+            Out << (opnd0->getSExtValue() + opnd1->getSExtValue());
+        } else {
+          if(addParenthesis.find(&I) != addParenthesis.end())
+            Out << "(";
+          writeOperand(I.getOperand(0), ContextCasted);
+          Out << " + ";
+          writeOperand(I.getOperand(1), ContextCasted);
+          if(addParenthesis.find(&I) != addParenthesis.end())
+            Out << ")";
+        }
       }
       else if(opcode == Instruction::Mul || opcode == Instruction::FMul){
         //Out << "(";
@@ -8545,11 +8567,16 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
         writeOperand(I.getOperand(1), ContextCasted);
       }
       else if(opcode == Instruction::Sub || opcode == Instruction::FSub){
-        Out << "(";
-        writeOperand(I.getOperand(0), ContextCasted);
-        Out << " - ";
-        writeOperand(I.getOperand(1), ContextCasted);
-        Out << ")";
+        if(ConstantInt* opnd0 = dyn_cast<ConstantInt>(I.getOperand(0))){
+          if(ConstantInt* opnd1 = dyn_cast<ConstantInt>(I.getOperand(1)))
+            Out << (opnd0->getSExtValue() - opnd1->getSExtValue());
+        } else {
+          Out << "(";
+          writeOperand(I.getOperand(0), ContextCasted);
+          Out << " - ";
+          writeOperand(I.getOperand(1), ContextCasted);
+          Out << ")";
+        }
       }
       else if(opcode == Instruction::UDiv || opcode == Instruction::FDiv){
         Out << "(";
@@ -8669,13 +8696,21 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
     // Certain instructions require the operand to be forced to a specific type
     // so we use writeOperandWithCast here instead of writeOperand. Similarly
     // below for operand 1
-    if(I.getOpcode() == Instruction::Add
+    bool foldedConstant = false;
+    if(I.getOpcode() == Instruction::Sub){
+      if(ConstantInt *opnd0 = dyn_cast<ConstantInt>(I.getOperand(0)))
+        if(ConstantInt *opnd1 = dyn_cast<ConstantInt>(I.getOperand(1))){
+          foldedConstant = true;
+          Out << (opnd0->getSExtValue() - opnd1->getSExtValue());
+        }
+    }
+    if(!foldedConstant && (I.getOpcode() == Instruction::Add
         || I.getOpcode() == Instruction::FAdd
         || I.getOpcode() == Instruction::Sub
         || I.getOpcode() == Instruction::FSub
         || I.getOpcode() == Instruction::Shl
         || I.getOpcode() == Instruction::LShr
-        || I.getOpcode() == Instruction::AShr)
+        || I.getOpcode() == Instruction::AShr))
       Out << "(";
     writeOperandWithCast(I.getOperand(0), I.getOpcode());
 
