@@ -7425,12 +7425,12 @@ void CWriter::printLoopNew(Loop *L) {
 
     }
 
-    Out << ";";
+    Out << "; ";
 
     //print step
     if(LP->isOmpLoop){
       Out << GetValueName(LP->IV);
-      Out << "+=";
+      Out << " = " << GetValueName(LP->IV) << " + ";
       writeOperandInternal(LP->incr);
       Out << "){\n";
     } else {
