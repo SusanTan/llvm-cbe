@@ -1661,7 +1661,7 @@ void CWriter::preprocessInsts2AddParenthesis(Function &F){
       }
 
 
-      if(hasHigherOrderOps(&*I, higherOrderOpcodes)){
+      if(hasHigherOrderOps(&*I, higherOrderOpcodes) && !isIVIncrement(&*I)){
         errs() << "SUSAN: add () to inst: " << *op << "\n";
         addParenthesis.insert(op);
       }
@@ -7434,6 +7434,7 @@ void CWriter::printLoopNew(Loop *L) {
       writeOperandInternal(LP->incr);
       Out << "){\n";
     } else {
+      errs() << "SUSAN: increment: " << *LP->incr << "\n";
       printInstruction(cast<Instruction>(LP->incr), false);
       Out << "){\n";
     }
