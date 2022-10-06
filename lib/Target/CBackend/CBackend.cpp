@@ -183,6 +183,14 @@ bool CWriter::isAddressExposed(Value *V) const {
 bool CWriter::isInlinableInst(Instruction &I) const {
   // Always inline cmp instructions, even if they are shared by multiple
   // expressions.  GCC generates horrible code if we don't.
+  //
+
+  //FIXME: patch to alias example
+  if(CallInst *callInst = dyn_cast<CallInst>(&I))
+    if(Function *F = callInst->getCalledFunction())
+      if(F->getName() == "exp")
+        return true;
+
   if (isa<LoadInst>(I) || isa<CmpInst>(I) || isa<GetElementPtrInst>(I) || isa<CastInst>(I))
     return true;
 
@@ -9560,22 +9568,37 @@ void CWriter::omp_findInlinedStructInputs(Value* argInput, std::map<int, Value*>
   std::map<int, int>gep2Align;
   for(auto U : argInput->users()){
     GetElementPtrInst* gep = dyn_cast<GetElementPtrInst>(U);
-    if(!gep) continue;
-    ConstantInt *constint = dyn_cast<ConstantInt>(gep->getOperand(2));
-    int idx = constint->getSExtValue();
-    StructType *sourceElTy = dyn_cast<StructType>(gep->getSourceElementType());
-    Type* ty = sourceElTy->getElementType(idx);
+    BitCastInst* bitcastInst = dyn_cast<BitCastInst>(U);
+    Instruction *userInst = nullptr;
+    int idx = 0;
+    Type *ty = nullptr;
+    if(gep){
+      userInst = gep;
+      ConstantInt *constint = dyn_cast<ConstantInt>(gep->getOperand(2));
+      idx = constint->getSExtValue();
+      StructType *sourceElTy = dyn_cast<StructType>(gep->getSourceElementType());
+      ty = sourceElTy->getElementType(idx);
+    }
+    else if(bitcastInst){
+      userInst = bitcastInst;
+      int idx = 0;
+      PointerType *sourcePtrTy = dyn_cast<PointerType>(bitcastInst->getSrcTy());
+      StructType *sourceTy = dyn_cast<StructType>(sourcePtrTy->getPointerElementType());
+      ty = sourceTy->getElementType(idx);
+    } else continue;
+
     if(ty->isDoubleTy() || ty->isPointerTy())
       gep2typeWidth[idx] = 8;
     else if(IntegerType *intTy = dyn_cast<IntegerType>(ty))
       gep2typeWidth[idx] = intTy->getBitWidth() / 8;
 
-    for(auto storeU : gep->users()){
+    for(auto storeU : userInst->users()){
       if(StoreInst *store = dyn_cast<StoreInst>(storeU)){
         errs() << "SUSAN: found store for struct 9066: " << *store << "\n";
         auto originalVal = findOriginalValue(store->getOperand(0));
         errs() << "SUSAN: original Val: " << *originalVal;
         gep2argInput[idx] = originalVal;
+        errs() << "SUSAN: alignment: " << store->getAlignment();
         gep2Align[idx] = store->getAlignment();
       }
       else if(CastInst *cast = dyn_cast<CastInst>(storeU)){
@@ -9592,12 +9615,18 @@ void CWriter::omp_findInlinedStructInputs(Value* argInput, std::map<int, Value*>
   }
 
   //figure out the stored location
-  int currentIdx = 0;
+  int smallestIdx = 999;
+  for(auto [idx, argInput] : gep2argInput){
+    if(smallestIdx > idx )
+      smallestIdx = idx;
+  }
+  int currentIdx = smallestIdx;
   for(auto [idx, argInput] : gep2argInput){
     errs() << "SUSAN: idx: " << idx << "\n";
     if(currentIdx % gep2Align[idx])
       currentIdx = (currentIdx / gep2Align[idx] + 1) * gep2Align[idx];
 
+    errs() << "SUSAN: currIdx 9609: " << currentIdx << "\n";
     argInputs[currentIdx] = argInput;
 
     currentIdx += gep2typeWidth[idx];
@@ -9722,6 +9751,10 @@ void CWriter::visitCallInst(CallInst &I) {
             omp_findCorrespondingUsesOfStruct(arg, args);
             for(auto [idx, arg] : args){
               auto argInput = argInputs[idx];
+              if(!argInput){
+                errs() << "SUSAN: didn't find argInput for idx: " << idx << "\n";
+                continue;
+              }
               PointerType* ptrTy = dyn_cast<PointerType>(argInput->getType());
               if(!ptrTy)
                 valuesCast2Double.erase(arg);
