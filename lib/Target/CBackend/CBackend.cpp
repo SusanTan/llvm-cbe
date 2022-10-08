@@ -11039,7 +11039,46 @@ void CWriter::visitLoadInst(LoadInst &I) {
 void CWriter::visitStoreInst(StoreInst &I) {
   CurInstr = &I;
 
-  if(doubleGeps.find(&I) != doubleGeps.end()){
+  AllocaInst *noneSkipAlloca = nullptr;
+
+  auto gep = dyn_cast<GetElementPtrInst>(I.getPointerOperand());
+  std::stack<GetElementPtrInst*> geps;
+  while(gep){
+    geps.push(gep);
+    noneSkipAlloca = dyn_cast<AllocaInst>(gep->getPointerOperand());
+    gep = dyn_cast<GetElementPtrInst>(gep->getPointerOperand());
+  }
+
+  if(noneSkipAlloca){
+    Out << GetValueName(noneSkipAlloca);
+    while(!geps.empty()){
+      auto gep = geps.top();
+      geps.pop();
+      Out << '[';
+      int idx = 0;
+      std::vector<Value*>vals2write;
+      for(unsigned int i =1; i!=gep->getNumOperands(); i++){
+        if(ConstantInt *constInt = dyn_cast<ConstantInt>(gep->getOperand(i)))
+          idx += constInt->getSExtValue();
+        if(Instruction *inst = dyn_cast<Instruction>(gep->getOperand(i))){
+          if(inst->getOpcode() == Instruction::Mul)
+            vals2write.push_back(inst->getOperand(0));
+          else
+            vals2write.push_back(inst);
+        }
+      }
+
+      writeOperand(vals2write[0]);
+      for (auto it = begin(vals2write)+1; it != end(vals2write); ++it) {
+        Out << " + " ;
+        writeOperand(*it);
+      }
+      if(idx)
+        Out << " + " << idx << ']';
+      else
+        Out << ']';
+    }
+  } else if(doubleGeps.find(&I) != doubleGeps.end()){
     GetElementPtrInst *gep = cast<GetElementPtrInst>(I.getPointerOperand());
     GetElementPtrInst *gep2 = cast<GetElementPtrInst>(gep->getPointerOperand());
     auto ptrVal = gep2->getPointerOperand();
