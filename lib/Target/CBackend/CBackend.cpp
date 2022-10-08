@@ -7610,14 +7610,27 @@ if( NATURAL_CONTROL_FLOW ){
       }
     }
 
-    if (!isInlinableInst(*II)) {
+    if(noneSkipAllocaInsts.find(&*II) != noneSkipAllocaInsts.end()){
+      AllocaInst *alloca = dyn_cast<AllocaInst>(&*II);
+      PointerType *ptrTy = dyn_cast<PointerType>(II->getType());
+      if(ptrTy){
+        printTypeName(Out, ptrTy->getPointerElementType(), false) << ' ';
+      }
+      Out << GetValueName(&*II);
+
+      Type *currTy = alloca->getAllocatedType();
+      while(ArrayType *arrTy = dyn_cast<ArrayType>(currTy)){
+        Out << '[' << arrTy->getNumElements() << ']';
+        currTy = arrTy->getElementType();
+      }
+      Out << ";\n";
+    } else if (!isInlinableInst(*II)) {
       errs() << "SUSAN: printing instruction " << *II << " at 6678\n";
       if (!isEmptyType(II->getType()) || isa<StoreInst>(&*II))
         Out << "  ";
 
       if ((&*II)->user_begin() != (&*II)->user_end() && !isEmptyType(II->getType()) && !isInlineAsm(*II)) {
         auto varName = GetValueName(&*II);
-        //if (canDeclareLocalLate(*II)) {
         if(declaredLocals.find(varName) == declaredLocals.end()
           && omp_declaredLocals.find(varName) == omp_declaredLocals.end()){
           auto varName = GetValueName(&*II, true);
