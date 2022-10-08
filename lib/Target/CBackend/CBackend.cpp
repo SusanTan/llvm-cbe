@@ -6317,6 +6317,8 @@ void CWriter::printFunction(Function &F, bool inlineF) {
             std::string varName = var->getName().str();
             if (isa<ValueAsMetadata>(valMeta)){
               Value *valV = cast<ValueAsMetadata>(valMeta)->getValue();
+              if(AllocaInst *alloca = dyn_cast<AllocaInst>(valV))
+                noneSkipAllocaInsts.insert(alloca);
               if(Argument *arg = dyn_cast<Argument>(valV)){
                 errs() << "SUSAN: found argument 6346: " << *valV << "\n";
                 if( Var2IRs.find(varName) == Var2IRs.end() )
@@ -7240,6 +7242,7 @@ bool is_number(const std::string& s)
 }
 
 bool CWriter::isSkipableInst(Instruction* inst){
+    if(noneSkipAllocaInsts.find(inst) != noneSkipAllocaInsts.end())return false;
     if(omp_SkipVals.find(inst) != omp_SkipVals.end()) return true;
     //if(skipInstsForPhis.find(inst) != skipInstsForPhis.end()) return true;
     if(deadInsts.find(inst) != deadInsts.end()) return true;
@@ -7254,6 +7257,7 @@ bool CWriter::isSkipableInst(Instruction* inst){
       if(Function *F = CI->getCalledFunction())
         if (F->getIntrinsicID() == Intrinsic::dbg_value)
           return true;
+
 
     return false;
 }
@@ -7583,9 +7587,11 @@ if( NATURAL_CONTROL_FLOW ){
   for (BasicBlock::iterator II = BB->begin(), E = --BB->end(); II != E; ++II) {
     Instruction* inst = &*II;
 
-
+    errs() << "SUSAN: trying to print instruction 7595: " << *II << "\n";
     if(isSkipableInst(inst)) continue;
-    if(skipInsts.find(cast<Value>(inst)) != skipInsts.end()) continue;
+    errs() << "SUSAN: trying to print instruction 7596: " << *II << "\n";
+    //if(skipInsts.find(cast<Value>(inst)) != skipInsts.end()) continue;
+    //errs() << "SUSAN: trying to print instruction 7599: " << *II << "\n";
 
 
     /*
@@ -7604,7 +7610,7 @@ if( NATURAL_CONTROL_FLOW ){
       }
     }
 
-    if (!isInlinableInst(*II) && !isDirectAlloca(&*II)) {
+    if (!isInlinableInst(*II)) {
       errs() << "SUSAN: printing instruction " << *II << " at 6678\n";
       if (!isEmptyType(II->getType()) || isa<StoreInst>(&*II))
         Out << "  ";

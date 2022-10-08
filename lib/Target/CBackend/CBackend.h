@@ -149,6 +149,7 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   std::map<Instruction*, Value*> doubleGeps;
   std::map<Value*, Type*> mallocType;
   std::map<Function*, int> FunctionTopLoopLevels;
+  std::set<Instruction*>noneSkipAllocaInsts;
 
   CBERegion *topRegion;
 
