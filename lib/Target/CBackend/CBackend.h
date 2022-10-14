@@ -75,6 +75,8 @@ typedef struct LoopProfile{
   Value* lbAlloca;
   bool isForLoop;
   int nestlevel;
+  int schedtype;
+  int chunksize;
 } LoopProfile;
 
 class CBEMCAsmInfo : public MCAsmInfo {

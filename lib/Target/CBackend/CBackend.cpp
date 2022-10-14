@@ -1029,6 +1029,7 @@ void CWriter::omp_preprossesing(Function &F){
 
   //find __kmpc_for_static_init and associated loop info
   Value *lb, *ub, *incr;
+  int schedtype, chunksize;
   CallInst *initCI, *finiCI;
   initCI = nullptr;
   finiCI = nullptr;
@@ -1052,7 +1053,12 @@ void CWriter::omp_preprossesing(Function &F){
 
           // find the value stored into lb
           lb = CI->getArgOperand(4);
+          if(schedtype == 33 || schedtype == 34){
+            errs() << "SUSAN: schedtype is static!\n";
+          }
           ompLP->lbAlloca = lb;
+          ompLP->schedtype = cast<ConstantInt>(CI->getArgOperand(2))->getSExtValue();
+          ompLP->chunksize = cast<ConstantInt>(CI->getArgOperand(8))->getSExtValue();
           errs() << "SUSAN: lbAlloca: " << *lb << "\n";
           for(User *U : lb->users()){
             if(StoreInst *store = dyn_cast<StoreInst>(U))
@@ -7314,9 +7320,16 @@ void CWriter::printLoopNew(Loop *L) {
         printInstruction(I);
       }*/
 
-      Out << "#pragma omp for schedule(static)";
+      //Out << "#pragma omp for schedule(static)";
+      Out << "#pragma omp for ";
+      if(LP->schedtype == 33 || LP->schedtype == 34){
+         if(LP->chunksize == 1)
+           Out << "schedule(static) ";
+         else
+           Out << "schedule(static, " << LP->chunksize << ") ";
+      }
       if(!LP->barrier)
-        Out << " nowait";
+        Out << "nowait";
 
       //find if there are private variables
       bool printPrivate = true;
