@@ -21,10 +21,10 @@ if (NOT USE_SYSTEM_LLVM)
     )
 
 
-  add_llvm_tool(llvm-cbe
+  add_llvm_tool(splendid
     llvm-cbe.cpp
     )
-  export_executable_symbols(llvm-cbe)
+  export_executable_symbols(splendid)
 endif()
 
 if(USE_SYSTEM_LLVM)
