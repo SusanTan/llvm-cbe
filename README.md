@@ -1,4 +1,4 @@
-llvm-cbe
+SPLENDID (on top of llvm-cbe)
 ========
 
 This LLVM C backend has been resurrected by Julia Computing with various improvements.
