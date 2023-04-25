@@ -272,7 +272,8 @@ int main(int argc, char **argv) {
   initializeWasmEHPreparePass(Registry);
   initializeWriteBitcodePassPass(Registry);
   initializeHardwareLoopsPass(Registry);
-  initializeTypePromotionPass(Registry);
+  //Comment out by Hailong Jiang, 03/23/2023
+  //initializeTypePromotionPass(Registry);
   //initializeReplaceWithVeclibLegacyPass(Registry);
   // Register the target printer for --version.
   cl::AddExtraVersionPrinter(TargetRegistry::printRegisteredTargetsForVersion);

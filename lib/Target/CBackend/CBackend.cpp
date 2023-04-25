@@ -4324,7 +4324,9 @@ void CWriter::findOMPFunctions(Module &M){
     int numArgs = std::distance(utask->arg_begin(), utask->arg_end())-2;
     for(auto idx = 3; idx < numArgs+3; ++idx) {
       Value *argInput = callInst->getArgOperand(idx);
-      Value *arg = utask->getArg(idx-1);
+      //Value *arg = utask->getArg(idx-1);
+      //Hailong Jiang 03/23/2023
+      Value *arg = utask->arg_begin()+(idx-1);
       PointerType* ty = dyn_cast<PointerType>(arg->getType());
       if(ty)
         type2declare[argInput] = ty->getPointerElementType();
@@ -4399,7 +4401,7 @@ void CWriter::generateHeader(Module &M) {
   // Support for integers with explicit sizes. This one isn't conditional
   // because virtually all CBE output will use it.
   OutHeaders << "#include <stdint.h>\n"; // Sized integer support
-  OutHeaders << "#include <stdio.h>\n";
+  OutHeaders << "#include <stdio.h>\n"; //
   OutHeaders << "#include <stdlib.h>\n";
   if (headerIncMath())
     OutHeaders << "#include <math.h>\n";
@@ -4556,6 +4558,8 @@ void CWriter::generateHeader(Module &M) {
     if((&*I)->getName().contains("free")) continue;
     if((&*I)->getName().contains("strtol")) continue;
     if((&*I)->getName().contains("fprintf")) continue;
+    //Hailong Jiang 04/04/2023
+    if((&*I)->getName().contains("printf")) continue;
     if((&*I)->getName().contains("fputc")) continue;
     if((&*I)->getName().contains("malloc")) continue;
     // Don't print declarations for intrinsic functions.
@@ -9507,7 +9511,9 @@ void CWriter::findMallocType(Function &F){
     int numArgs = std::distance(utask->arg_begin(), utask->arg_end())-2;
     for(auto idx = 3; idx < numArgs+3; ++idx) {
       Value *argInput = call->getArgOperand(idx);
-      Value *arg = utask->getArg(idx-1);
+      //Value *arg = utask->getArg(idx-1);
+      //Hailong Jiang 03/23/2023
+      Value *arg = utask->arg_begin()+(idx-1);
       PointerType* ptrTy = dyn_cast<PointerType>(argInput->getType());
       if(ptrTy && isa<StructType>(ptrTy->getPointerElementType())){
         std::map<Value*, int> malloc2idx, args;
@@ -9761,7 +9767,9 @@ void CWriter::visitCallInst(CallInst &I) {
       int numArgs = std::distance(utask->arg_begin(), utask->arg_end())-2;
       for(auto idx = 3; idx < numArgs+3; ++idx) {
         Value *argInput = I.getArgOperand(idx);
-        Value *arg = utask->getArg(idx-1);
+        //Value *arg = utask->getArg(idx-1);
+        //Hailong Jiang 03/23/2023
+        Value *arg = utask->arg_begin()+(idx-1);
         errs() << "SUSAN: argInput: " << *argInput << "\n";
         errs() << "SUSAN: arg: " << *arg << "\n";
 
@@ -10528,7 +10536,7 @@ bool CWriter::printGEPExpressionStruct(Value *Ptr, gep_type_iterator I,
 
   if(gepStart){
     Value *UO = findUnderlyingObject(Ptr);
-    currValue2DerefCnt = std::pair(UO, Times2Dereference[UO]);
+    currValue2DerefCnt = std::pair<Value*, int>(UO, Times2Dereference[UO]);
   }
 
   if(!accessMemory && gepStart){
