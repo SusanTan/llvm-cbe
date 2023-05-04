@@ -4560,6 +4560,8 @@ void CWriter::generateHeader(Module &M) {
     if((&*I)->getName().contains("free")) continue;
     if((&*I)->getName().contains("strtol")) continue;
     if((&*I)->getName().contains("fprintf")) continue;
+    if((&*I)->getName().contains("atoll")) continue;
+    if((&*I)->getName().contains("calloc")) continue;
     //Hailong Jiang 04/04/2023
     if((&*I)->getName().contains("printf")) continue;
     if((&*I)->getName().contains("fputc")) continue;
