@@ -416,7 +416,7 @@ private:
   void preprocessSkippableBranches(Function &F);
   Value* findOriginalValue(Value *val);
   CBERegion* findRegionOfBlock(BasicBlock* BB);
-  bool dominatedByReturn(BasicBlock* brBB);
+  int dominatedByReturn(BasicBlock* brBB);
   void removeBranchTarget(BranchInst *br, int destIdx);
   void FindInductionVariableRelationships();
   bool isExtraIVIncrement(Value* V);

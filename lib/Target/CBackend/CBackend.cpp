@@ -423,7 +423,7 @@ void CWriter::markBranchRegion(Instruction* br, CBERegion* targetRegion){
     bool falseBrOnly  = PDT->dominates(trueStartBB, falseStartBB) &&
                       directPathFromAtoBwithoutC(falseStartBB, trueStartBB, brBB);
     returnDominated = dominatedByReturn(brBB);
-    if(!trueBrOnly && !falseBrOnly && !returnDominated){
+    if(!trueBrOnly && !falseBrOnly && returnDominated == -1){
       trueBrOnly = (exitFunctionTrueBr && !exitFunctionFalseBr) || exitLoopTrueBB;
       falseBrOnly = (exitFunctionFalseBr && !exitFunctionTrueBr) || exitLoopFalseBB;
     }
@@ -454,7 +454,7 @@ void CWriter::markBranchRegion(Instruction* br, CBERegion* targetRegion){
         return;
     }
 
-    if(trueBrOnly && !returnDominated){
+    if(trueBrOnly && returnDominated == -1){
         recordTimes2bePrintedForBranch(trueStartBB, brBB, falseStartBB,
           currRegion);
 
@@ -472,7 +472,7 @@ void CWriter::markBranchRegion(Instruction* br, CBERegion* targetRegion){
       recordTimes2bePrintedForBranch(falseStartBB, brBB, trueStartBB, currRegion, true);
     }
     //Case 3: only print if body with reveresed case
-    else if(falseBrOnly && !returnDominated){
+    else if(falseBrOnly && returnDominated == -1){
       recordTimes2bePrintedForBranch(falseStartBB, brBB, trueStartBB,
             currRegion);
 
@@ -528,7 +528,7 @@ void CWriter::markBBwithNumOfVisits(Function &F){
     times2bePrinted[&BB]=0;
   }
 
-  returnDominated = false;
+  returnDominated = -1;
   recordTimes2bePrintedForBranch(&F.getEntryBlock(), nullptr, nullptr, topRegion);
 
   //despite root node, each leaf-to-child_of_root path will contain a set of BBs, these BBs times3bePrinted need to be incrememnted, lastly any node with times2bePrinted = 0 means it belong to the entry node and therefore times2bePrinted = 1
@@ -6566,25 +6566,6 @@ void CWriter::printFunction(Function &F, bool inlineF) {
                      Name, &args);
 
     Out << " {\n";
-
-    //if (shouldFixMain) {
-    //  // Cast the arguments to main() to the expected LLVM IR types and names.
-    //  unsigned Idx = 1;
-    //  FunctionType::param_iterator I = FTy->param_begin(), E = FTy->param_end();
-    //  Function::arg_iterator ArgName = args.begin();
-
-    //  for (; I != E; ++I) {
-    //    Type *ArgTy = *I;
-    //    Out << "  ";
-    //    printTypeName(Out, ArgTy);
-    //    Out << ' ' << GetValueName(ArgName) << " = (";
-    //    printTypeName(Out, ArgTy);
-    //    Out << ")" << MainArgs.begin()[Idx].second << ";\n";
-
-    //    ++Idx;
-    //    ++ArgName;
-    //  }
-    //}
   }
 
   // If this is a struct return function, handle the result with magic.
@@ -6627,14 +6608,8 @@ void CWriter::printFunction(Function &F, bool inlineF) {
   bool isDeclared = false;
   if(!IS_OPENMP_FUNCTION){
      for (inst_iterator I = inst_begin(&F), E = inst_end(&F); I != E; ++I){
-       //if(InstsToReplaceByPhi.find(&*I) == InstsToReplaceByPhi.end()){
-       if(InstsToReplaceByPhi.find(&*I) != InstsToReplaceByPhi.end()) continue;
-       if(deadInsts.find(&*I) != deadInsts.end()) continue;
-       if(isSkipableInst(&*I)) continue;
-         continue;
-       errs() << "SUSAN: declaring local: " << *I << "\n";
-       DeclareLocalVariable(&*I, PrintedVar, isDeclared, declaredLocals);
-       //}
+       if(!canDeclareLocalLate(*I))
+        DeclareLocalVariable(&*I, PrintedVar, isDeclared, declaredLocals);
      }
   }
 
@@ -8162,40 +8137,31 @@ void CWriter::emitIfBlock(CBERegion *R, bool doNotPrintReturn, bool isElseBranch
 }
 
 
-bool CWriter::dominatedByReturn(BasicBlock* brBB){
+int CWriter::dominatedByReturn(BasicBlock* brBB){
   Function *F = brBB->getParent();
+
+  //find return BB
   BasicBlock *returnBB = nullptr;
   for(auto &BB : *F)
     if(isa<ReturnInst>(BB.getTerminator())){
       returnBB = &BB;
       break;
     }
+  if(!returnBB) return -1;
 
-  if(!returnBB) return false;
 
-
-  std::set<BasicBlock*> visited;
-  std::queue<BasicBlock*> toVisit;
-  visited.insert(brBB);
-  toVisit.push(brBB);
-
-  while(!toVisit.empty()){
-    BasicBlock* currBB = toVisit.front();
-    toVisit.pop();
-
-    if(currBB != brBB && currBB != returnBB && PDT->dominates(currBB, brBB))
-      return false;
-
-    for (auto succ = succ_begin(currBB); succ != succ_end(currBB); ++succ){
-      BasicBlock *succBB = *succ;
-      if(visited.find(succBB) == visited.end()){
-        visited.insert(succBB);
-        toVisit.push(succBB);
-      }
-    }
+  auto br = dyn_cast<BranchInst>(brBB->getTerminator());
+  if(br->isConditional()){
+    auto succ0 = br->getSuccessor(0);
+    auto succ1 = br->getSuccessor(0);
+    auto singleSucc = succ0->getSingleSuccessor();
+    if(singleSucc && isa<ReturnInst>(singleSucc->getTerminator()))
+      return 0;
+    singleSucc = succ1->getSingleSuccessor();
+    if(singleSucc && isa<ReturnInst>(singleSucc->getTerminator()))
+      return 1;
   }
-
-  return true;
+  else return 0;
 }
 
 void CWriter::naturalBranchTranslation(BranchInst &I){
@@ -8214,18 +8180,6 @@ void CWriter::naturalBranchTranslation(BranchInst &I){
   //special case: branch is dead
   BasicBlock *brBB = I.getParent();
   CBERegion *cbeRegion = CBERegionMap[brBB];
-  //if(deadBranches.find(&I) != deadBranches.end()){
-  //  errs() << "statically proven dead branch: " << I << "\n";
-
-  //  Loop *L = LI->getLoopFor(brBB);
-  //  if(L && L->getHeader() == brBB){
-  //    printBranchToBlock(I.getParent(), I.getSuccessor(deadBranches[&I]), 0);
-  //    return;
-  //  }
-
-  //  emitIfBlock(cbeRegion, deadBranches[&I]);
-  //  return;
-  //}
 
   //special case: print goto branch
   if(gotoBranches.find(&I) != gotoBranches.end()){
@@ -8277,26 +8231,18 @@ void CWriter::naturalBranchTranslation(BranchInst &I){
   bool exitFunctionTrueBr = isExitingFunction(trueStartBB);
   bool exitFunctionFalseBr = isExitingFunction(falseStartBB);
 
-  //bool trueBrOnly =  isPotentiallyReachable(trueStartBB,falseStartBB)
-  //                   && !( isPotentiallyReachable(trueStartBB, brBB) &&
-  //                     isPotentiallyReachable(brBB, falseStartBB) );
-  //bool falseBrOnly = isPotentiallyReachable(falseStartBB,trueStartBB)
-  //                   && !( isPotentiallyReachable(falseStartBB, brBB) &&
-  //                     isPotentiallyReachable(brBB, trueStartBB) );
-
-
   bool trueBrOnly = (PDT->dominates(falseStartBB, trueStartBB) &&
                     directPathFromAtoBwithoutC(trueStartBB, falseStartBB, brBB));
   bool falseBrOnly  = PDT->dominates(trueStartBB, falseStartBB) &&
                       directPathFromAtoBwithoutC(falseStartBB, trueStartBB, brBB);
   returnDominated = dominatedByReturn(brBB);
 
-  if(!trueBrOnly && !falseBrOnly && !returnDominated){
+  if(!trueBrOnly && !falseBrOnly && returnDominated == -1){
     trueBrOnly = (exitFunctionTrueBr && !exitFunctionFalseBr) || exitLoopTrueBB;
     falseBrOnly = (exitFunctionFalseBr && !exitFunctionTrueBr) || exitLoopFalseBB;
   }
 
-  if(falseBrOnly && !returnDominated){
+  if(falseBrOnly && returnDominated == -1){
     errs() << "SUSAN: false branch only!!\n" << I << "\n";
     Out << "  if (!";
     writeOperand(I.getCondition(), ContextCasted);
@@ -8352,27 +8298,30 @@ void CWriter::naturalBranchTranslation(BranchInst &I){
 
 
     //Case 2: only print if body
-    if(trueBrOnly || returnDominated){
+    if(returnDominated == 0){
+      emitIfBlock(cbeRegion, false, false);
+    }
+    else if(returnDominated == 1){
+      emitIfBlock(cbeRegion, false, true);
+    }
+    else if(trueBrOnly){
       emitIfBlock(cbeRegion, true, false);
     }
     //Case 3: only print if body with reveresed case
     else if(falseBrOnly){
-      //printPHICopiesForSuccessor(brBB, I.getSuccessor(1), 2);
       emitIfBlock(cbeRegion);
     }
     //Case 4: print if & else;
     else{
-      //printPHICopiesForSuccessor(brBB, I.getSuccessor(0), 2);
       emitIfBlock(cbeRegion);
       Out << "  } else {\n";
-      //printPHICopiesForSuccessor(brBB, I.getSuccessor(1), 2);
       emitIfBlock(cbeRegion, false, true);
     }
 
     Out << "}\n";
 
-    if(returnDominated)
-      emitIfBlock(cbeRegion, false, true);
+    //if(returnDominated)
+    //  emitIfBlock(cbeRegion, false, true);
 
   Out << "\n";
 }
