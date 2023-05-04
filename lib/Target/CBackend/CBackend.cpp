@@ -3022,7 +3022,8 @@ void CWriter::printConstant(Constant *CPV, enum OperandContext Context) {
       //Out << CI->getZExtValue() << 'u';
       Out << CI->getSExtValue();
     } else if (Ty->getPrimitiveSizeInBits() <= 64) {
-      Out << CI->getZExtValue();
+      //Out << CI->getZExtValue();
+      Out << CI->getSExtValue();
     } else if (Ty->getPrimitiveSizeInBits() <= 128) {
       headerUseInt128();
       const APInt &V = CI->getValue();
@@ -3444,7 +3445,8 @@ std::string CWriter::GetValueName(Value *Operand, bool isDeclaration) {
       VarName += ch;
   }
 
-  return "_" + VarName;
+  //return "_" + VarName;
+  return VarName;
 }
 
 /// writeInstComputationInline - Emit the computation for the specified
@@ -6947,11 +6949,8 @@ BasicBlock* findDoWhileExitingLatchBlock(Loop *L){
 }
 
 Instruction* CWriter::findCondInst(Loop *L, bool &negateCondition){
-
-  BasicBlock *condBB = findDoWhileExitingLatchBlock(L);
-  if(!condBB) errs() << "SUSAN: no condBB!!!";
-  errs() << "Loop: " << *L << "\n";
-  Instruction* term = condBB->getTerminator();
+  auto header = L->getHeader();
+  Instruction* term = header->getTerminator();
   BranchInst* brInst = dyn_cast<BranchInst>(term);
   Value *cond = brInst->getCondition();
   if(isa<CmpInst>(cond) || isa<UnaryInstruction>(cond) || isa<BinaryOperator>(cond) || isa<CallInst>(cond)){
@@ -7038,7 +7037,7 @@ void CWriter::printLoopBody(LoopProfile *LP, Instruction* condInst,  std::set<Va
   // Don't print Loop latch any more
   BasicBlock *skipBlock = nullptr;
   if(L->getBlocks().size() > 1)
-    skipBlock = findDoWhileExitingLatchBlock(L);
+    skipBlock = L->getLoopLatch();
 
   std::set<Instruction*> InstsKeptFromSkipBlock;
   if(skipBlock){
@@ -7051,36 +7050,6 @@ void CWriter::printLoopBody(LoopProfile *LP, Instruction* condInst,  std::set<Va
     Loop *BBLoop = LI->getLoopFor(BB);
     if(BB != skipBlock){
       if (BBLoop == L){
-        /*if(BB == L->getHeader()){
-          //FIXME: skipDoWhileCheck when it's only omp loops
-          if(LP->isOmpLoop || canSkipHeader(BB)){
-            Value *cmp = nullptr;
-            BranchInst *term = dyn_cast<BranchInst>(BB->getTerminator());
-            if(term && term->isConditional()) cmp = term->getCondition();
-            if(cmp)
-              errs() << "SUSAN: cmp is: " << *cmp << "\n";
-            for (BasicBlock::iterator I = BB->begin();
-                cast<Instruction>(I) != cmp &&
-                I != BB->end() &&
-                !isa<BranchInst>(I); ++I){
-              Instruction *headerInst = &*I;
-              errs() << "printing headerInst: " << *headerInst << "\n";
-              bool relatedToControl = false;
-              for(User *U : headerInst->users())
-                if(U == cmp || U == term){
-                  relatedToControl = true;
-                  break;
-                }
-
-              if (!relatedToControl && !isSkipableInst(headerInst)){
-                  printInstruction(headerInst);
-              }
-            }
-            printBranchToBlock(SI.getParent(), SI.getDefaultDest(), 2);
-            times2bePrinted[BB]--;
-            continue;
-          }
-        }*/
         errs() << "printing BB:" << BB->getName() << "at 6187\n";
         printBasicBlock(BB, skipInsts);
         times2bePrinted[BB]--;
@@ -7398,11 +7367,11 @@ void CWriter::printLoopNew(Loop *L) {
     //print init statement
 
     //print iv type
-    Out << "uint64_t ";
+    Out << "int ";
 
     errs() << "SUSAN: printing IV" << *LP->IV << "\n";
     Out << GetValueName(LP->IV, true) << " = ";
-    writeOperandInternal(LP->lb);
+    writeOperand(LP->lb);
     Out << "; ";
 
     //print exitCondtion
