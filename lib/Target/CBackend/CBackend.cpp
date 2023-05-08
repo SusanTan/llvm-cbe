@@ -8940,19 +8940,24 @@ void CWriter::visitCastInst(CastInst &I) {
 void CWriter::visitSelectInst(SelectInst &I) {
   CurInstr = &I;
 
-  Out << "llvm_select_";
-  printTypeString(Out, I.getType(), false);
-  Out << "(";
   writeOperand(I.getCondition(), ContextCasted);
-  Out << ", ";
+  Out << " ? ";
   writeOperand(I.getTrueValue(), ContextCasted);
-  Out << ", ";
+  Out << " : ";
   writeOperand(I.getFalseValue(), ContextCasted);
-  Out << ")";
-  SelectDeclTypes.insert(I.getType());
-  cwriter_assert(
-      I.getCondition()->getType()->isVectorTy() ==
-      I.getType()->isVectorTy()); // TODO: might be scalarty == vectorty
+  //Out << "llvm_select_";
+  //printTypeString(Out, I.getType(), false);
+  //Out << "(";
+  //writeOperand(I.getCondition(), ContextCasted);
+  //Out << ", ";
+  //writeOperand(I.getTrueValue(), ContextCasted);
+  //Out << ", ";
+  //writeOperand(I.getFalseValue(), ContextCasted);
+  //Out << ")";
+  //SelectDeclTypes.insert(I.getType());
+  //cwriter_assert(
+  //    I.getCondition()->getType()->isVectorTy() ==
+  //    I.getType()->isVectorTy()); // TODO: might be scalarty == vectorty
 }
 
 // Returns the macro name or value of the max or min of an integer type
