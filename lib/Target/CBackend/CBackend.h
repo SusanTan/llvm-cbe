@@ -137,7 +137,7 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   bool omp_declarePrivate;
   bool isSkipableInst(Instruction* inst);
   void EliminateDeadInsts(Function &F);
-  bool returnDominated;
+  int returnDominated;
   std::set<Instruction*> deadInsts;
   std::map<PHINode*, std::set<PHINode*>> IVMap;
   std::map<Instruction*, PHINode*> IVInc2IV;
@@ -417,6 +417,7 @@ private:
   Value* findOriginalValue(Value *val);
   CBERegion* findRegionOfBlock(BasicBlock* BB);
   int dominatedByReturn(BasicBlock* brBB);
+  bool noElseRegion(bool trueBranch, BasicBlock *brBB);
   void removeBranchTarget(BranchInst *br, int destIdx);
   void FindInductionVariableRelationships();
   bool isExtraIVIncrement(Value* V);

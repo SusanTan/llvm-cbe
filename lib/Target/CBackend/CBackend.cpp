@@ -418,10 +418,8 @@ void CWriter::markBranchRegion(Instruction* br, CBERegion* targetRegion){
     BasicBlock *falseStartBB = br->getSuccessor(1);
     bool exitFunctionTrueBr = isExitingFunction(trueStartBB);
     bool exitFunctionFalseBr = isExitingFunction(falseStartBB);
-    bool trueBrOnly = PDT->dominates(falseStartBB, trueStartBB) &&
-                    directPathFromAtoBwithoutC(trueStartBB, falseStartBB, brBB);
-    bool falseBrOnly  = PDT->dominates(trueStartBB, falseStartBB) &&
-                      directPathFromAtoBwithoutC(falseStartBB, trueStartBB, brBB);
+    bool trueBrOnly = noElseRegion(true, brBB);
+    bool falseBrOnly = noElseRegion(false, brBB);
     returnDominated = dominatedByReturn(brBB);
     if(!trueBrOnly && !falseBrOnly && returnDominated == -1){
       trueBrOnly = (exitFunctionTrueBr && !exitFunctionFalseBr) || exitLoopTrueBB;
@@ -849,7 +847,7 @@ Instruction *CWriter::getIVIncrement(Loop *L, PHINode* IV) {
 }
 
 PHINode *getInductionVariable(Loop *L, ScalarEvolution *SE) {
-  errs() << "trying to get IV for Loop:" << *L << "\n";
+  //errs() << "trying to get IV for Loop:" << *L << "\n";
   PHINode *InnerIndexVar = L->getCanonicalInductionVariable();
   if (InnerIndexVar){
     errs() << "SUSAN: found IV 784\n";
@@ -7550,11 +7548,7 @@ if( NATURAL_CONTROL_FLOW ){
   for (BasicBlock::iterator II = BB->begin(), E = --BB->end(); II != E; ++II) {
     Instruction* inst = &*II;
 
-    errs() << "SUSAN: trying to print instruction 7595: " << *II << "\n";
     if(isSkipableInst(inst)) continue;
-    errs() << "SUSAN: trying to print instruction 7596: " << *II << "\n";
-    //if(skipInsts.find(cast<Value>(inst)) != skipInsts.end()) continue;
-    //errs() << "SUSAN: trying to print instruction 7599: " << *II << "\n";
 
 
     /*
@@ -8019,10 +8013,14 @@ void CWriter::createSubRegionOrRecordCurrentRegion(BasicBlock* predBB, BasicBloc
           markBranchRegion(br, newR);
         }
 
-        if(isElseBranch)
+        if(isElseBranch){
+          errs() << "SUSAN: adding block to else branch" << *currBB << "\n";
           R->elseBBs.push_back(currBB);
-        else
+        }
+        else{
+          errs() << "SUSAN: adding block to if branch" << *currBB << "\n";
           R->thenBBs.push_back(currBB);
+        }
      }
   }
 }
@@ -8058,31 +8056,6 @@ void CWriter::recordTimes2bePrintedForBranch(BasicBlock* start, BasicBlock *brBl
         toVisit.pop();
 
         BranchInst *br = dyn_cast<BranchInst>(currBB->getTerminator());
-        //if(br && deadBranches.find(br) != deadBranches.end()){
-        //  BasicBlock *succBB = br->getSuccessor(deadBranches[br]);
-        //  bool alreadyVisited = false;
-        //  for(auto visitedEdge : visited)
-        //    if(visitedEdge.first == currBB && visitedEdge.second == succBB)
-        //      alreadyVisited = true;
-
-        //  bool backEdgeDetected = false;
-        //  for(auto backedge : backEdges)
-        //    if(backedge.first == currBB && backedge.second  == succBB)
-        //      backEdgeDetected = true;
-
-        //  Loop *L = LI->getLoopFor(succBB);
-        //  if(L && L->getLoopLatch() == currBB){
-        //    errs() << "SUSAN: found latch" << currBB->getName() << "\n";
-        //    backEdgeDetected = true;
-        //  }
-
-        //  if(!alreadyVisited && !backEdgeDetected){
-        //    visitedNodes.insert(succBB);
-        //    visited.insert(std::make_pair(currBB,succBB));
-        //    toVisit.push(std::make_pair(currBB,succBB));
-        //  }
-        //  continue;
-        //}
 
         for (auto succ = succ_begin(currBB); succ != succ_end(currBB); ++succ){
             BasicBlock *succBB = *succ;
@@ -8138,24 +8111,60 @@ void CWriter::emitIfBlock(CBERegion *R, bool doNotPrintReturn, bool isElseBranch
    }
 }
 
+bool CWriter::noElseRegion(bool trueBranch, BasicBlock *brBB){
+  BranchInst *br = dyn_cast<BranchInst>(brBB->getTerminator());
+  errs() << "SUSAN: noElseRegion " << trueBranch << "for br: " << *br << "\n";
+  BasicBlock *startBB = trueBranch ? br->getSuccessor(1) : br->getSuccessor(0);
+
+  // find immediate PD BB
+  BasicBlock *pdBB = nullptr;
+  std::queue<BasicBlock*> toVisit;
+  std::set<BasicBlock*> visited;
+  toVisit.push(startBB);
+  visited.insert(startBB);
+  std::set<BasicBlock*> inBetweenBBs;
+  while(!toVisit.empty()){
+    BasicBlock* currBB = toVisit.front();
+    toVisit.pop();
+
+    if(PDT->dominates(currBB, brBB)){
+      pdBB = currBB;
+      break;
+    }
+    inBetweenBBs.insert(currBB);
+
+    for (auto succ = succ_begin(currBB); succ != succ_end(currBB); ++succ){
+      BasicBlock *succBB = *succ;
+      if(visited.find(succBB) == visited.end()){
+        visited.insert(succBB);
+        toVisit.push(succBB);
+      }
+    }
+  }
+
+  assert(pdBB && "pdBB not found\n");
+  errs() << "SUSAN: found pdBB " << *pdBB << "\n";
+
+  bool NoElseRegion = true;
+  for(auto bb : inBetweenBBs){
+    for(auto &I : *bb){
+      if(!isa<BranchInst>(&I)){
+        NoElseRegion = false;
+        break;
+      }
+    }
+  }
+
+  errs() << NoElseRegion << "\n";
+  return NoElseRegion;
+}
 
 int CWriter::dominatedByReturn(BasicBlock* brBB){
   Function *F = brBB->getParent();
-
-  //find return BB
-  BasicBlock *returnBB = nullptr;
-  for(auto &BB : *F)
-    if(isa<ReturnInst>(BB.getTerminator())){
-      returnBB = &BB;
-      break;
-    }
-  if(!returnBB) return -1;
-
-
   auto br = dyn_cast<BranchInst>(brBB->getTerminator());
   if(br->isConditional()){
     auto succ0 = br->getSuccessor(0);
-    auto succ1 = br->getSuccessor(0);
+    auto succ1 = br->getSuccessor(1);
     auto singleSucc = succ0->getSingleSuccessor();
     if(singleSucc && isa<ReturnInst>(singleSucc->getTerminator()))
       return 0;
@@ -8163,7 +8172,8 @@ int CWriter::dominatedByReturn(BasicBlock* brBB){
     if(singleSucc && isa<ReturnInst>(singleSucc->getTerminator()))
       return 1;
   }
-  else return 0;
+
+  return -1;
 }
 
 void CWriter::naturalBranchTranslation(BranchInst &I){
@@ -8233,10 +8243,8 @@ void CWriter::naturalBranchTranslation(BranchInst &I){
   bool exitFunctionTrueBr = isExitingFunction(trueStartBB);
   bool exitFunctionFalseBr = isExitingFunction(falseStartBB);
 
-  bool trueBrOnly = (PDT->dominates(falseStartBB, trueStartBB) &&
-                    directPathFromAtoBwithoutC(trueStartBB, falseStartBB, brBB));
-  bool falseBrOnly  = PDT->dominates(trueStartBB, falseStartBB) &&
-                      directPathFromAtoBwithoutC(falseStartBB, trueStartBB, brBB);
+  bool trueBrOnly = noElseRegion(true, brBB);
+  bool falseBrOnly = noElseRegion(false, brBB);
   returnDominated = dominatedByReturn(brBB);
 
   if(!trueBrOnly && !falseBrOnly && returnDominated == -1){
@@ -8301,12 +8309,15 @@ void CWriter::naturalBranchTranslation(BranchInst &I){
 
     //Case 2: only print if body
     if(returnDominated == 0){
+      errs() << "emitting returndominated 0\n";
       emitIfBlock(cbeRegion, false, false);
     }
     else if(returnDominated == 1){
+      errs() << "emitting returndominated 1\n";
       emitIfBlock(cbeRegion, false, true);
     }
     else if(trueBrOnly){
+      errs() << "emitting trueBrOnly\n";
       emitIfBlock(cbeRegion, true, false);
     }
     //Case 3: only print if body with reveresed case
