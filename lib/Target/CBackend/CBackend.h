@@ -62,6 +62,35 @@ typedef struct CBERegion{
   std::vector<std::pair<BasicBlock*, BasicBlock*>> elseEdges;
 } CBERegion;
 
+class CBERegion2 {
+  public:
+  static int whichRegion(BasicBlock* entryBB, LoopInfo *LI);
+
+  protected:
+  BasicBlock *entryBlock; //entryBlock itself should belong to parent region
+  CBERegion *parentRegion;
+};
+
+class IfElseRegion : public CBERegion2 {
+  private:
+  std::vector<BasicBlock*> thenBBs;
+  std::vector<BasicBlock*> elseBBs;
+  std::vector<struct CBERegion*> thenSubRegions;
+  std::vector<struct CBERegion*> elseSubRegions;
+  std::vector<std::pair<BasicBlock*, BasicBlock*>> thenEdges;
+  std::vector<std::pair<BasicBlock*, BasicBlock*>> elseEdges;
+};
+
+class LoopRegion : public CBERegion2{
+  private:
+  Loop *loop;
+};
+
+class LinearRegion : public CBERegion2{
+  private:
+  std::vector<BasicBlock*> BBs;
+};
+
 typedef struct LoopProfile{
   Loop *L;
   Value *ub;
@@ -152,6 +181,7 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   std::map<Value*, Type*> mallocType;
   std::map<Function*, int> FunctionTopLoopLevels;
   std::set<Instruction*>noneSkipAllocaInsts;
+  std::vector<CBERegion*>CBERegionDAG;
 
   CBERegion *topRegion;
 
@@ -372,6 +402,7 @@ private:
   Value* findUnderlyingObject(Value *Ptr);
   void findVariableDepth(Type *Ty, Value *UO, int depths);
   void markBBwithNumOfVisits(Function &F);
+  void createCBERegionDAG(Function &F);
   Instruction* headerIsExiting(Loop *L, bool &negateCondition, BranchInst* brInst = nullptr);
   void recordTimes2bePrintedForBranch(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, CBERegion *R, bool isElseBranch = false);
   void CountTimes2bePrintedByRegionPath ();

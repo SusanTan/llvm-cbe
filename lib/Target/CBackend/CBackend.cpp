@@ -515,6 +515,31 @@ void CWriter::markBranchRegion(Instruction* br, CBERegion* targetRegion){
   errs() << "=================SUSAN: END OF marking region : " << br->getParent()->getName() << "==================\n";
 }
 
+int CBERegion2::whichRegion(BasicBlock *entryBB, LoopInfo *LI){
+  if(LI->getLoopFor(entryBB))
+    return 2; //loop region
+
+  if(BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator()))
+    if(br->isConditional())
+      return 1;
+
+  return 0;
+}
+
+void CWriter::createCBERegionDAG(Function &F){
+  switch (CBERegion2::whichRegion(&F.getEntryBlock(), LI)){
+    case 0:
+      errs() << "SUSAN: entry block is a linear region!\n";
+      break;
+    case 1:
+      errs() << "SUSAN: entry block is an if-else region!\n";
+      break;
+    case 2:
+      errs() << "SUSAN: entry block is a loop region!\n";
+      break;
+  }
+}
+
 void CWriter::markBBwithNumOfVisits(Function &F){
 
   //set up top region
@@ -783,57 +808,8 @@ std::set<BasicBlock*> CWriter::findRegionEntriesOfBB (BasicBlock* BB){
 
 void CWriter::determineControlFlowTranslationMethod(Function &F){
   NATURAL_CONTROL_FLOW = true;
-
-//  for(auto &BB : F){
-//
-//    for(auto &I : BB){
-//      if(isa<SwitchInst>(I)){
-//        errs() << "SUSAN: don't do natural translation due to switch statement\n";
-//        NATURAL_CONTROL_FLOW = false;
-//        return;
-//      }
-//    }
-//  }
-//
-//
   markBBwithNumOfVisits(F);
-//  for(auto &BB : F){
-//    if(BasicBlock *uniqueSucc = BB.getUniqueSuccessor()){
-//      if(std::next(Function::iterator(&BB)) != Function::iterator(uniqueSucc)){
-//
-//        // if it's a loop backedge then we can translate it
-//        bool isBackEdge = false;
-//        for(auto backEdge : backEdges){
-//          if(backEdge.first == &BB && backEdge.second == uniqueSucc)
-//            isBackEdge = true;
-//        }
-//
-//        // if it's a exiting function edge we can translate it
-//        bool isExitingFunctionEdge = false;
-//        Instruction *term = uniqueSucc->getTerminator();
-//        if(isa<ReturnInst>(term) || isa<UnreachableInst>(term))
-//          isExitingFunctionEdge = true;
-//
-//        // if its an edge that's branch to a post dominator inside of a cberegion, we can translate it
-//        bool isBranchMergeEdge = false;
-//        std::set<BasicBlock*> brBlocks = findRegionEntriesOfBB(&BB);
-//        for(auto brBB : brBlocks){
-//          if(PDT->dominates(uniqueSucc, brBB))
-//            isBranchMergeEdge = true;
-//        }
-//
-//        if(!isBackEdge && !isExitingFunctionEdge && !isBranchMergeEdge){
-//          errs() << "SUSAN: not natural at 769\n";
-//          NATURAL_CONTROL_FLOW = false;
-//          return;
-//        }
-//
-//      }
-//    }
-//  }
-//
-
-
+  createCBERegionDAG(F);
 }
 
 Instruction *CWriter::getIVIncrement(Loop *L, PHINode* IV) {
@@ -6616,131 +6592,12 @@ void CWriter::printFunction(Function &F, bool inlineF) {
   if (PrintedVar)
     Out << '\n';
 
-  std::set<BasicBlock*> delayedBBs;
 
   /*
    * OpenMP:
    * Record Liveins
    * Only prints the loop
    */
-  //if(IS_OPENMP_FUNCTION){
-  //  //for(auto LP : LoopProfiles)
-  //  //  if(LP->isOmpLoop)
-  //  //    OMP_RecordLiveIns(LP);
-  //  //find all the local variables to declare
-  //  std::set<std::string> declaredLocals;
-  //  for(auto LP : LoopProfiles){
-  //    if(!LP->isForLoop) continue;
-  //    //if(!LP->isOmpLoop) continue;
-  //    //if(!LP->isOmpLoop){
-  //    //  bool nestedInOmpLoop = false;
-  //    //  Loop *L = LP->L->getParentLoop();
-  //    //  while(L){
-  //    //    for(auto lp : LoopProfiles)
-  //    //      if(lp->L == L && lp->isOmpLoop){
-  //    //        nestedInOmpLoop = true;
-  //    //        break;
-  //    //      }
-  //    //    if(nestedInOmpLoop) break;
-  //    //    L = L->getParentLoop();
-  //    //  }
-  //    //  //if(nestedInOmpLoop){
-  //    //  //  bool isDeclared = false;
-  //    //  //  DeclareLocalVariable(LP->IV, PrintedVar, isDeclared, declaredLocals);
-  //    //  //  errs() << "SUSAN: adding iv to declared locals: " << *LP->IV << "\n";
-  //    //  //  omp_declaredLocals[L].insert(LP->IV);
-  //    //  //  continue;
-  //    //  //}
-  //    //}
-  //    Loop *L = LP->L;
-  //    std::set<Value*> skipInsts;
-  //    bool negateCondition;
-  //    Instruction *condInst = findCondInst(L, negateCondition);
-  //    BasicBlock *condBlock = condInst->getParent();
-  //    findCondRelatedInsts(condBlock, skipInsts);
-  //    for (unsigned i = 0, e = L->getBlocks().size(); i != e; ++i) {
-  //      BasicBlock *BB = L->getBlocks()[i];
-  //      for(auto &I : *BB){
-  //        Instruction *inst = &I;
-  //        if(isInductionVariable(inst)) continue;
-  //        if(omp_SkipVals.find(inst) != omp_SkipVals.end()) continue;
-  //        //if(skipInstsForPhis.find(inst) != skipInstsForPhis.end()) continue;
-  //        //if(deadInsts.find(inst) != deadInsts.end()) continue;
-  //        if(isInlinableInst(*inst))
-  //          errs() << "SUSAN: isinlinable!! " << *inst << "\n";
-  //        if(isSkipableInst(inst) && !isInlinableInst(*inst)) continue;
-  //        errs() << "SUSAN: at 6293: " << *inst << "\n";
-  //        if(dyn_cast<PHINode>(inst)) continue;
-  //        if(skipInsts.find(cast<Value>(inst)) != skipInsts.end()) continue;
-  //        errs() << "SUSAN: at 6296: " << *inst << "\n";
-  //        //bool isDeclared = false;
-  //        //DeclareLocalVariable(inst, PrintedVar, isDeclared, declaredLocals);
-  //        //errs() << "SUSAN: declared local: " << *inst << "\n";
-  //        //if(isDeclared) omp_declaredLocals[L].insert(inst);
-  //        auto varName = GetValueName(inst);
-  //        if(declaredLocals.find(varName) == declaredLocals.end()){
-  //          if (AllocaInst *AI = isDirectAlloca(inst)) {
-  //            declaredLocals.insert(varName);
-  //            toDeclareLocal.insert(inst);
-  //            errs() << "SUSAN: to declareLocal 6391:" << *inst << "\n";
-  //          } else if (!isEmptyType(inst->getType()) && !isInlinableInst(*inst)) {
-  //            declaredLocals.insert(varName);
-  //            toDeclareLocal.insert(inst);
-  //            errs() << "SUSAN: to declareLocal 6395:" << *inst << "\n";
-  //          }
-  //        }
-  //      }
-  //    }
-
-
-  //    //in case induction variable isn't declared
-  //    //bool isDeclared = false;
-  //    //DeclareLocalVariable(LP->IV, PrintedVar, isDeclared, declaredLocals);
-  //    //if(isDeclared) omp_declaredLocals[L].insert(LP->IV);
-
-
-  //    //declare all the liveins
-  //    if(omp_liveins.find(L) != omp_liveins.end()){
-  //      for(auto livein : omp_liveins[L]){
-  //        if(isSkipableInst(livein)) continue;
-  //        if(isInductionVariable(livein)) continue;
-  //        //isDeclared = false;
-  //        //errs() << "SUSAN: declaring omp livein: " << *livein << "\n";
-  //        //DeclareLocalVariable(livein, PrintedVar, isDeclared, declaredLocals);
-  //        //toDeclareLocal.insert(livein);
-  //        //errs() << "SUSAN: to declareLocal:" << *livein << "\n";
-  //        auto varName = GetValueName(livein);
-  //        if(declaredLocals.find(varName) == declaredLocals.end()){
-  //          if (AllocaInst *AI = isDirectAlloca(livein)) {
-  //            errs() << "6420: insert livein varname: " << varName << "livein: " << *livein << "\n";
-  //            declaredLocals.insert(varName);
-  //            toDeclareLocal.insert(livein);
-  //          } else if (!isEmptyType(livein->getType()) && !isInlinableInst(*livein)) {
-  //            errs() << "6424: insert livein varname: " << varName << "livein: " << *livein << "\n";
-  //            declaredLocals.insert(varName);
-  //            toDeclareLocal.insert(livein);
-  //          }
-  //        }
-  //      }
-  //    }
-
-  //  }
-  //}
-    /*for(auto LP : LoopProfiles){
-      if(!LP->isOmpLoop) continue;
-      for(auto I : omp_liveins[LP->L]){
-        bool isDeclared = false;
-        DeclareLocalVariable(I, PrintedVar, isDeclared, declaredLocals);
-        if(isDeclared) omp_declaredLocals[LP->L].insert(I);
-      }
-    }*/
-
-   // for(auto LP : LoopProfiles)
-   //   if(LP->isOmpLoop){
-   //     errs() << "SUSAN: print omploop: " << *LP->L << "\n";
-   //     printLoopNew(LP->L);
-   //   }
-  //} else { // print basic blocks
     std::queue<BasicBlock*> toVisit;
     std::set<BasicBlock*> visited;
     toVisit.push(&F.getEntryBlock());
@@ -6767,14 +6624,6 @@ void CWriter::printFunction(Function &F, bool inlineF) {
 
       CBERegion *R = findRegionOfBlock(currBB);
       if(BranchInst *br = dyn_cast<BranchInst>(currBB->getTerminator())){
-        /*if(deadBranches.find(br) != deadBranches.end()){
-          BasicBlock *succBB = br->getSuccessor(deadBranches[br]);
-          if(visited.find(succBB) == visited.end()){
-            toVisit.push(succBB);
-            visited.insert(succBB);
-          }
-        }*/
-        //else{
           errs() << "SUSAN: br:" << *br << "\n";
           BasicBlock *succ0 = br->getSuccessor(0);
           BasicBlock *succOne = nullptr;
@@ -6800,7 +6649,6 @@ void CWriter::printFunction(Function &F, bool inlineF) {
             toVisit.push(succ1);
             visited.insert(succ1);
           }
-        //}
       } else {
 	      for (auto succ = succ_begin(currBB); succ != succ_end(currBB); ++succ){
 		      BasicBlock *succBB = *succ;
@@ -6812,13 +6660,7 @@ void CWriter::printFunction(Function &F, bool inlineF) {
         }
       }
     }
-  //}
 
-  for(auto BB : delayedBBs){
-    errs() << "printing BB:" << BB->getName() << "at 5964\n";
-    printBasicBlock(BB);
-    times2bePrinted[BB]--;
-  }
 
   if(!inlineF)
     Out << "}\n\n";
