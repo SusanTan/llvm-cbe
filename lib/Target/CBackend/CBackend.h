@@ -45,11 +45,13 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/Analysis/RegionInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include <queue>
 
 namespace llvm_cbe {
 
 using namespace llvm;
 
+//utility functions
 //SUSAN: added structs
 typedef struct CBERegion{
   BasicBlock *entryBlock; //entryBlock itself should belong to parent region
@@ -61,35 +63,6 @@ typedef struct CBERegion{
   std::vector<std::pair<BasicBlock*, BasicBlock*>> thenEdges;
   std::vector<std::pair<BasicBlock*, BasicBlock*>> elseEdges;
 } CBERegion;
-
-class CBERegion2 {
-  public:
-  static int whichRegion(BasicBlock* entryBB, LoopInfo *LI);
-
-  protected:
-  BasicBlock *entryBlock; //entryBlock itself should belong to parent region
-  CBERegion *parentRegion;
-};
-
-class IfElseRegion : public CBERegion2 {
-  private:
-  std::vector<BasicBlock*> thenBBs;
-  std::vector<BasicBlock*> elseBBs;
-  std::vector<struct CBERegion*> thenSubRegions;
-  std::vector<struct CBERegion*> elseSubRegions;
-  std::vector<std::pair<BasicBlock*, BasicBlock*>> thenEdges;
-  std::vector<std::pair<BasicBlock*, BasicBlock*>> elseEdges;
-};
-
-class LoopRegion : public CBERegion2{
-  private:
-  Loop *loop;
-};
-
-class LinearRegion : public CBERegion2{
-  private:
-  std::vector<BasicBlock*> BBs;
-};
 
 typedef struct LoopProfile{
   Loop *L;
@@ -108,9 +81,47 @@ typedef struct LoopProfile{
   int chunksize;
 } LoopProfile;
 
-class CBEMCAsmInfo : public MCAsmInfo {
-public:
-  CBEMCAsmInfo() { PrivateGlobalPrefix = ""; }
+class CBERegion2 {
+  public:
+  BasicBlock *getNextEntryBB(){
+    return nextEntryBB;
+  };
+  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT)
+    : LI(LI),
+      PDT(PDT),
+      entryBlock(nullptr),
+      nextEntryBB(nullptr),
+      parentRegion(nullptr) {};
+
+  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, CBERegion2 *parentR, BasicBlock *entryBB)
+    : LI(LI),
+      PDT(PDT),
+      entryBlock(entryBB),
+      parentRegion(parentR) {};
+
+  void createCBERegionDAG(BasicBlock *entryBB, CBERegion2 *parentR, BasicBlock *endBB);
+
+  int whichRegion(BasicBlock *entryBB, LoopInfo *LI){
+    if(LI->getLoopFor(entryBB))
+      return 2; //loop region
+
+    if(BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator()))
+      if(br->isConditional())
+        return 1;
+
+    return 0;
+  }
+
+
+  protected:
+  BasicBlock *entryBlock; //entryBlock itself should belong to parent region
+  BasicBlock *nextEntryBB;
+  CBERegion2 *parentRegion;
+  LoopInfo *LI;
+  PostDominatorTree *PDT;
+
+  private:
+  std::vector<CBERegion2*>CBERegionDAG;
 };
 
 /// CWriter - This class is the main chunk of code that converts an LLVM
@@ -181,9 +192,9 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   std::map<Value*, Type*> mallocType;
   std::map<Function*, int> FunctionTopLoopLevels;
   std::set<Instruction*>noneSkipAllocaInsts;
-  std::vector<CBERegion*>CBERegionDAG;
 
   CBERegion *topRegion;
+  CBERegion2 *TopRegion;
 
   // SUSAN: added analyses
   PostDominatorTree *PDT = nullptr;
@@ -402,7 +413,6 @@ private:
   Value* findUnderlyingObject(Value *Ptr);
   void findVariableDepth(Type *Ty, Value *UO, int depths);
   void markBBwithNumOfVisits(Function &F);
-  void createCBERegionDAG(Function &F);
   Instruction* headerIsExiting(Loop *L, bool &negateCondition, BranchInst* brInst = nullptr);
   void recordTimes2bePrintedForBranch(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, CBERegion *R, bool isElseBranch = false);
   void CountTimes2bePrintedByRegionPath ();
@@ -581,6 +591,176 @@ private:
   std::string GetValueName(Value *Operand, bool isDeclaration=false);
 
   friend class CWriterTestHelper;
+};
+
+
+
+class LinearRegion : public CBERegion2{
+  public:
+  LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT)
+  : CBERegion2{ LI, PDT, parentR, entryBB }{
+    BasicBlock *nextBB = entryBB;
+    while(nextBB){
+      BBs.push_back(nextBB);
+      nextEntryBB = nextBB;
+      nextBB = nextBB->getSingleSuccessor();
+    }
+  };
+
+  private:
+  std::vector<BasicBlock*> BBs;
+};
+
+class LoopRegion : public CBERegion2{
+  public:
+  LoopRegion (BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, CBERegion2 *parentR)
+  : CBERegion2{ LI, PDT, parentR, entryBB}{
+    parentRegion = parentR;
+    loop = LI->getLoopFor(entryBB);
+    assert(loop && "cannot find loop for a loop region\n");
+    nextEntryBB = loop->getUniqueExitBlock();
+    assert(nextEntryBB && "loop doesn't have unique exit block\n");
+  }
+
+  Loop* getLoop(){ return loop; }
+
+  private:
+  Loop *loop;
+  CBERegion2 *parentRegion;
+  std::vector<CBERegion2*> CBERegionDAG;
+};
+
+class IfElseRegion : public CBERegion2 {
+  public:
+  IfElseRegion (BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, LoopInfo* LI)
+  : CBERegion2{ LI,PDT,  parentR, entryBB}{
+    BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator());
+    assert(br && "not a branch inst to start if else region\n");
+
+    BasicBlock *brBB = entryBB;
+    BasicBlock *trueStartBB = br->getSuccessor(0);
+    BasicBlock *falseStartBB = br->getSuccessor(1);
+    bool exitFunctionTrueBr = isExitingFunction(trueStartBB);
+    bool exitFunctionFalseBr = isExitingFunction(falseStartBB);
+    bool trueBrOnly = noElseRegion(true, brBB);
+    bool falseBrOnly = noElseRegion(false, brBB);
+    int returnDominated = dominatedByReturn(brBB);
+    if(!trueBrOnly && !falseBrOnly && returnDominated == -1){
+      trueBrOnly = (exitFunctionTrueBr && !exitFunctionFalseBr);
+      falseBrOnly = (exitFunctionFalseBr && !exitFunctionTrueBr);
+    }
+
+    if(trueBrOnly && returnDominated == -1){
+      createSubRegions(trueStartBB, brBB, falseStartBB, false);
+    }
+    else if(falseBrOnly && returnDominated == -1){
+      createSubRegions(falseStartBB, brBB, trueStartBB, true);
+    }
+    else{
+      createSubRegions(trueStartBB, brBB, falseStartBB, false);
+      createSubRegions(falseStartBB, brBB, trueStartBB, true);
+    }
+    errs() << "=================SUSAN: END OF marking region : " << br->getParent()->getName() << "==================\n";
+  }
+
+  private:
+  void createSubRegions(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, bool isElseBranch = false);
+
+  int dominatedByReturn(BasicBlock* brBB){
+    Function *F = brBB->getParent();
+    auto br = dyn_cast<BranchInst>(brBB->getTerminator());
+    if(br->isConditional()){
+      auto succ0 = br->getSuccessor(0);
+      auto succ1 = br->getSuccessor(1);
+      auto singleSucc = succ0->getSingleSuccessor();
+      if(singleSucc && isa<ReturnInst>(singleSucc->getTerminator()))
+        return 0;
+      singleSucc = succ1->getSingleSuccessor();
+      if(singleSucc && isa<ReturnInst>(singleSucc->getTerminator()))
+        return 1;
+    }
+    return -1;
+  }
+
+  BasicBlock* isExitingFunction(BasicBlock* bb){
+    Instruction *term = bb->getTerminator();
+    if(isa<ReturnInst>(term))
+      return bb;
+
+    if(term->getNumSuccessors() > 1)
+      return nullptr;
+
+    if(isa<UnreachableInst>(term))
+      return bb;
+
+    BasicBlock *succ = term->getSuccessor(0);
+    Instruction *ret = succ->getTerminator();
+
+    if(isa<ReturnInst>(ret)) return succ;
+    else return nullptr;
+  }
+
+  bool noElseRegion(bool trueBranch, BasicBlock *brBB){
+    BranchInst *br = dyn_cast<BranchInst>(brBB->getTerminator());
+    errs() << "SUSAN: noElseRegion " << trueBranch << "for br: " << *br << "\n";
+    BasicBlock *startBB = trueBranch ? br->getSuccessor(1) : br->getSuccessor(0);
+
+    // find immediate PD BB
+    BasicBlock *pdBB = nullptr;
+    std::queue<BasicBlock*> toVisit;
+    std::set<BasicBlock*> visited;
+    toVisit.push(startBB);
+    visited.insert(startBB);
+    std::set<BasicBlock*> inBetweenBBs;
+    while(!toVisit.empty()){
+      BasicBlock* currBB = toVisit.front();
+      toVisit.pop();
+
+      if(PDT->dominates(currBB, brBB)){
+        pdBB = currBB;
+        break;
+      }
+      inBetweenBBs.insert(currBB);
+
+      for (auto succ = succ_begin(currBB); succ != succ_end(currBB); ++succ){
+        BasicBlock *succBB = *succ;
+        if(visited.find(succBB) == visited.end()){
+          visited.insert(succBB);
+          toVisit.push(succBB);
+        }
+      }
+    }
+
+    assert(pdBB && "pdBB not found\n");
+    errs() << "SUSAN: found pdBB " << *pdBB << "\n";
+
+    bool NoElseRegion = true;
+    for(auto bb : inBetweenBBs){
+      for(auto &I : *bb){
+        if(!isa<BranchInst>(&I)){
+          NoElseRegion = false;
+          break;
+        }
+      }
+    }
+
+    errs() << NoElseRegion << "\n";
+    return NoElseRegion;
+  }
+
+  std::vector<BasicBlock*> thenBBs;
+  std::vector<BasicBlock*> elseBBs;
+  std::vector<CBERegion2*> thenSubRegions;
+  std::vector<CBERegion2*> elseSubRegions;
+  std::vector<std::pair<BasicBlock*, BasicBlock*>> thenEdges;
+  std::vector<std::pair<BasicBlock*, BasicBlock*>> elseEdges;
+  PostDominatorTree *PDT;
+};
+
+
+class CBEMCAsmInfo : public MCAsmInfo {
+public:
+  CBEMCAsmInfo() { PrivateGlobalPrefix = ""; }
 };
 
 } // namespace llvm_cbe

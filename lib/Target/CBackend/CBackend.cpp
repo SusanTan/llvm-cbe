@@ -32,7 +32,6 @@
 #include <iostream>
 
 // SUSAN: added libs
-#include <queue>
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Analysis/CFG.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -515,29 +514,71 @@ void CWriter::markBranchRegion(Instruction* br, CBERegion* targetRegion){
   errs() << "=================SUSAN: END OF marking region : " << br->getParent()->getName() << "==================\n";
 }
 
-int CBERegion2::whichRegion(BasicBlock *entryBB, LoopInfo *LI){
-  if(LI->getLoopFor(entryBB))
-    return 2; //loop region
 
-  if(BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator()))
-    if(br->isConditional())
-      return 1;
-
-  return 0;
+void IfElseRegion::createSubRegions(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, bool isElseBranch){
+    BasicBlock *currBB = start;
+    while (!PDT->dominates(currBB, brBlock) && currBB != otherStart){
+      CBERegion2 *subR = nullptr;
+      switch (whichRegion(currBB, LI)){
+        case 0:
+        {
+          subR = new LinearRegion(currBB, this, LI, PDT);
+          errs() << "SUSAN: entry block is a linear region!\n";
+          break;
+        }
+        case 1:
+        {
+          subR = new IfElseRegion(currBB, this, PDT, LI);
+          errs() << "SUSAN: entry block is an if-else region!\n";
+          break;
+        }
+        case 2:
+        {
+          auto loopR = new LoopRegion(currBB, LI, PDT, this);
+          subR = loopR;
+          errs() << "SUSAN: entry block is a loop region!\n";
+          createCBERegionDAG(currBB, subR, loopR->getLoop()->getLoopLatch());
+          break;
+        }
+      }
+      if(!isElseBranch) thenSubRegions.push_back(subR);
+      else elseSubRegions.push_back(subR);
+      currBB = subR->getNextEntryBB();
+    }
 }
 
-void CWriter::createCBERegionDAG(Function &F){
-  switch (CBERegion2::whichRegion(&F.getEntryBlock(), LI)){
+void CBERegion2::createCBERegionDAG(BasicBlock *entryBB, CBERegion2 *parentR, BasicBlock *endBB){
+  // end search
+  if(entryBB == endBB) return;
+
+  CBERegion2 *entryR = nullptr;
+  switch (whichRegion(entryBB, LI)){
     case 0:
+    {
+      entryR = new LinearRegion(entryBB, parentR, LI, PDT);
       errs() << "SUSAN: entry block is a linear region!\n";
       break;
+    }
     case 1:
+    {
+      entryR = new IfElseRegion(entryBB, parentR, PDT, LI);
       errs() << "SUSAN: entry block is an if-else region!\n";
       break;
+    }
     case 2:
+    {
+      auto loopR = new LoopRegion(entryBB, LI, PDT, parentR);
+      entryR = loopR;
       errs() << "SUSAN: entry block is a loop region!\n";
+      createCBERegionDAG(entryBB, entryR, loopR->getLoop()->getLoopLatch());
       break;
+    }
   }
+  CBERegionDAG.push_back(entryR);
+
+  BasicBlock *nextRegionEntryBB = entryR->getNextEntryBB();
+  errs() << "SUSAN: nextRegionEntryBB " << *nextRegionEntryBB << "\n";
+  createCBERegionDAG(nextRegionEntryBB, parentR, endBB);
 }
 
 void CWriter::markBBwithNumOfVisits(Function &F){
@@ -809,7 +850,17 @@ std::set<BasicBlock*> CWriter::findRegionEntriesOfBB (BasicBlock* BB){
 void CWriter::determineControlFlowTranslationMethod(Function &F){
   NATURAL_CONTROL_FLOW = true;
   markBBwithNumOfVisits(F);
-  createCBERegionDAG(F);
+
+  BasicBlock *returnBB = nullptr;
+  for(auto &BB : F)
+    if(isa<ReturnInst>(BB.getTerminator())){
+      returnBB = &BB;
+      break;
+    }
+  assert(returnBB && "didn't find returnBB\n");
+
+  CBERegion2 *TopRegion = new CBERegion2(LI, PDT);
+  TopRegion->createCBERegionDAG(&F.getEntryBlock(), nullptr, returnBB);
 }
 
 Instruction *CWriter::getIVIncrement(Loop *L, PHINode* IV) {
@@ -7103,14 +7154,6 @@ void CWriter::printLoopNew(Loop *L) {
 
     std::set<Instruction*> printedLiveins;
     if(LP->isOmpLoop){
-      /*for(auto I : omp_liveins[L]){
-        if(printedLiveins.find(I) != printedLiveins.end()) continue;
-        printedLiveins.insert(I);
-        errs() << "SUSAN: printing inst: " << *I << "\n";
-        printInstruction(I);
-      }*/
-
-      //Out << "#pragma omp for schedule(static)";
       Out << "#pragma omp for ";
       if(LP->schedtype == 33 || LP->schedtype == 34){
          if(LP->chunksize == 1)
@@ -7125,35 +7168,6 @@ void CWriter::printLoopNew(Loop *L) {
       bool printPrivate = true;
       bool printComma = false;
       omp_declarePrivate=false;
-      //for(auto inst : omp_declaredLocals[LP->L]){
-      //  omp_declarePrivate = true;
-      //  errs() << "SUSAN: printing local in private: " << *inst << "\n";
-      //  errs() << "LP->IV: " << LP->IV << "\n";
-      //  if(inst == LP->IV ||
-      //      (isIVIncrement(cast<Value>(inst)) &&
-      //      LI->getLoopFor(inst->getParent())==LP->L)){
-      //    printComma = false;
-      //    continue;
-      //  }
-
-      //  if(PHINode* phi = dyn_cast<PHINode>(inst)){
-      //    auto relatedIVs = IVMap[LP->IV];
-      //    if(relatedIVs.find(phi) != relatedIVs.end()) continue;
-      //  }
-      //  if(isExtraIVIncrement(inst)) continue;
-
-      //  if(printComma) Out << ", ";
-      //  if(printPrivate){
-      //    printPrivate = false;
-      //    Out << " private( ";
-      //  }
-      //  writeOperand(cast<Value>(inst));
-      //  printComma = true;
-      //}
-
-      //if(!printPrivate)
-      //  Out << ")";
-
       Out << "\n";
     }
     omp_declarePrivate=false;
