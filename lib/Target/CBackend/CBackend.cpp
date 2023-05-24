@@ -515,69 +515,65 @@ void CWriter::markBranchRegion(Instruction* br, CBERegion* targetRegion){
 }
 
 
-void IfElseRegion::createSubRegions(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, bool isElseBranch){
-    BasicBlock *currBB = start;
-    while (!PDT->dominates(currBB, brBlock) && currBB != otherStart){
-      CBERegion2 *subR = nullptr;
-      switch (whichRegion(currBB, LI)){
-        case 0:
-        {
-          subR = new LinearRegion(currBB, this, LI, PDT);
-          errs() << "SUSAN: entry block is a linear region!\n";
-          break;
-        }
-        case 1:
-        {
-          subR = new IfElseRegion(currBB, this, PDT, LI);
-          errs() << "SUSAN: entry block is an if-else region!\n";
-          break;
-        }
-        case 2:
-        {
-          auto loopR = new LoopRegion(currBB, LI, PDT, this);
-          subR = loopR;
-          errs() << "SUSAN: entry block is a loop region!\n";
-          createCBERegionDAG(currBB, subR, loopR->getLoop()->getLoopLatch());
-          break;
-        }
-      }
-      if(!isElseBranch) thenSubRegions.push_back(subR);
-      else elseSubRegions.push_back(subR);
-      currBB = subR->getNextEntryBB();
-    }
-}
-
-void CBERegion2::createCBERegionDAG(BasicBlock *entryBB, CBERegion2 *parentR, BasicBlock *endBB){
-  // end search
-  if(entryBB == endBB) return;
-
-  CBERegion2 *entryR = nullptr;
+CBERegion2* CBERegion2::createSubRegions(CBERegion2 *parentR, BasicBlock* entryBB){
+  CBERegion2 *R = nullptr;
   switch (whichRegion(entryBB, LI)){
     case 0:
     {
-      entryR = new LinearRegion(entryBB, parentR, LI, PDT);
-      errs() << "SUSAN: entry block is a linear region!\n";
+      if(isa<CBERegion2>(this))
+        R = new LinearRegion(entryBB, parentR, LI, PDT, this);
+      else
+        R = new LinearRegion(entryBB, parentR, LI, PDT, this->topRegion);
+
+      errs() << "SUSAN: entry block is a linear region! " << entryBB->getName() << "\n";
       break;
     }
     case 1:
     {
-      entryR = new IfElseRegion(entryBB, parentR, PDT, LI);
-      errs() << "SUSAN: entry block is an if-else region!\n";
+      if(isa<CBERegion2>(this))
+        R = new IfElseRegion(entryBB, parentR, PDT, LI, this);
+      else
+        R = new IfElseRegion(entryBB, parentR, PDT, LI, this->topRegion);
+
+      errs() << "SUSAN: entry block is an if-else region! " << entryBB->getName() << "\n";
       break;
     }
     case 2:
     {
-      auto loopR = new LoopRegion(entryBB, LI, PDT, parentR);
-      entryR = loopR;
-      errs() << "SUSAN: entry block is a loop region!\n";
-      createCBERegionDAG(entryBB, entryR, loopR->getLoop()->getLoopLatch());
+      if(isa<CBERegion2>(this))
+        R = new LoopRegion(entryBB, LI, PDT, parentR, this);
+      else
+        R = new LoopRegion(entryBB, LI, PDT, parentR, this->topRegion);
+
+      errs() << "SUSAN: entry block is a loop region! " << entryBB->getName() << "\n";
       break;
     }
   }
+  return R;
+}
+
+BasicBlock* IfElseRegion::createSubIfElseRegions(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, bool isElseBranch){
+    BasicBlock *currBB = start;
+    while (!PDT->dominates(currBB, brBlock) && currBB != otherStart){
+      CBERegion2 *subR = createSubRegions(this, currBB);
+      if(!isElseBranch) thenSubRegions.push_back(subR);
+      else elseSubRegions.push_back(subR);
+      currBB = subR->getNextEntryBB();
+      errs() << "SUSAN: currbb 562: " << currBB->getName() << "\n";
+    }
+    return currBB;
+}
+
+void CBERegion2::createCBERegionDAG(BasicBlock* entryBB, CBERegion2 *parentR, BasicBlock *endBB){
+  // end search
+  if(entryBB == endBB) return;
+  if(this->hasNoRemainingBBs()) return;
+
+  CBERegion2 *entryR = createSubRegions(parentR, entryBB);
   CBERegionDAG.push_back(entryR);
 
   BasicBlock *nextRegionEntryBB = entryR->getNextEntryBB();
-  errs() << "SUSAN: nextRegionEntryBB " << *nextRegionEntryBB << "\n";
+  errs() << "SUSAN: nextRegionEntryBB " << nextRegionEntryBB->getName() << "\n";
   createCBERegionDAG(nextRegionEntryBB, parentR, endBB);
 }
 
@@ -860,6 +856,9 @@ void CWriter::determineControlFlowTranslationMethod(Function &F){
   assert(returnBB && "didn't find returnBB\n");
 
   CBERegion2 *TopRegion = new CBERegion2(LI, PDT);
+  for(auto &BB : F)
+    TopRegion->addBBToVisit(&BB);
+
   TopRegion->createCBERegionDAG(&F.getEntryBlock(), nullptr, returnBB);
 }
 

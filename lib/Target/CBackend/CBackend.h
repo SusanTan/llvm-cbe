@@ -91,19 +91,31 @@ class CBERegion2 {
       PDT(PDT),
       entryBlock(nullptr),
       nextEntryBB(nullptr),
-      parentRegion(nullptr) {};
+      parentRegion(nullptr),
+      topRegion(nullptr) {};
 
-  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, CBERegion2 *parentR, BasicBlock *entryBB)
+  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, CBERegion2 *parentR, BasicBlock *entryBB, CBERegion2 *topR)
     : LI(LI),
       PDT(PDT),
       entryBlock(entryBB),
-      parentRegion(parentR) {};
+      parentRegion(parentR),
+      topRegion(topR) {};
 
   void createCBERegionDAG(BasicBlock *entryBB, CBERegion2 *parentR, BasicBlock *endBB);
+  void addBBToVisit(BasicBlock* bb){
+    remainingBBsToVisit.insert(bb);
+  }
+  void removeBBToVisit(BasicBlock* bb){
+    remainingBBsToVisit.erase(bb);
+  }
+  bool hasNoRemainingBBs(){
+    return remainingBBsToVisit.empty();
+  }
 
   int whichRegion(BasicBlock *entryBB, LoopInfo *LI){
-    if(LI->getLoopFor(entryBB))
-      return 2; //loop region
+    if(Loop* L = LI->getLoopFor(entryBB))
+      if(L->getHeader() == entryBB)
+        return 2; //loop region
 
     if(BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator()))
       if(br->isConditional())
@@ -117,11 +129,14 @@ class CBERegion2 {
   BasicBlock *entryBlock; //entryBlock itself should belong to parent region
   BasicBlock *nextEntryBB;
   CBERegion2 *parentRegion;
+  CBERegion2 *topRegion;
   LoopInfo *LI;
   PostDominatorTree *PDT;
+  std::vector<CBERegion2*>CBERegionDAG;
+  CBERegion2* createSubRegions(CBERegion2* parentR, BasicBlock* entryBB);
 
   private:
-  std::vector<CBERegion2*>CBERegionDAG;
+  std::set<BasicBlock*> remainingBBsToVisit;
 };
 
 /// CWriter - This class is the main chunk of code that converts an LLVM
@@ -597,10 +612,11 @@ private:
 
 class LinearRegion : public CBERegion2{
   public:
-  LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT)
-  : CBERegion2{ LI, PDT, parentR, entryBB }{
+  LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT, CBERegion2 *topR)
+  : CBERegion2{ LI, PDT, parentR, entryBB, topR}{
     BasicBlock *nextBB = entryBB;
     while(nextBB){
+      topRegion->removeBBToVisit(nextBB);
       BBs.push_back(nextBB);
       nextEntryBB = nextBB;
       nextBB = nextBB->getSingleSuccessor();
@@ -613,13 +629,24 @@ class LinearRegion : public CBERegion2{
 
 class LoopRegion : public CBERegion2{
   public:
-  LoopRegion (BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, CBERegion2 *parentR)
-  : CBERegion2{ LI, PDT, parentR, entryBB}{
+  LoopRegion (BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, CBERegion2 *parentR, CBERegion2 *topR)
+  : CBERegion2{ LI, PDT, parentR, entryBB, topR}{
+    topR->removeBBToVisit(entryBB);
+    errs() << "creating loop region for entryBB: " << entryBB->getName() << "\n";
     parentRegion = parentR;
     loop = LI->getLoopFor(entryBB);
     assert(loop && "cannot find loop for a loop region\n");
     nextEntryBB = loop->getUniqueExitBlock();
     assert(nextEntryBB && "loop doesn't have unique exit block\n");
+
+    auto br = dyn_cast<BranchInst>(entryBB->getTerminator());
+    auto succ0 = br->getSuccessor(0);
+    auto succ1 = br->getSuccessor(1);
+    BasicBlock *bodyBB = nullptr;
+    if(succ0 == nextEntryBB) bodyBB = succ1;
+    else if(succ1 == nextEntryBB) bodyBB = succ0;
+    else assert(0 && "exit block is not from header!\n");
+    createCBERegionDAG(bodyBB, this, nextEntryBB);
   }
 
   Loop* getLoop(){ return loop; }
@@ -627,13 +654,14 @@ class LoopRegion : public CBERegion2{
   private:
   Loop *loop;
   CBERegion2 *parentRegion;
-  std::vector<CBERegion2*> CBERegionDAG;
 };
 
 class IfElseRegion : public CBERegion2 {
   public:
-  IfElseRegion (BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, LoopInfo* LI)
-  : CBERegion2{ LI,PDT,  parentR, entryBB}{
+  IfElseRegion (BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, LoopInfo* LI, CBERegion2 *topR)
+  : CBERegion2{ LI,PDT,  parentR, entryBB, topR}{
+
+    topRegion->removeBBToVisit(entryBB);
     BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator());
     assert(br && "not a branch inst to start if else region\n");
 
@@ -651,20 +679,20 @@ class IfElseRegion : public CBERegion2 {
     }
 
     if(trueBrOnly && returnDominated == -1){
-      createSubRegions(trueStartBB, brBB, falseStartBB, false);
+      nextEntryBB = createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
     }
     else if(falseBrOnly && returnDominated == -1){
-      createSubRegions(falseStartBB, brBB, trueStartBB, true);
+      nextEntryBB = createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
     }
     else{
-      createSubRegions(trueStartBB, brBB, falseStartBB, false);
-      createSubRegions(falseStartBB, brBB, trueStartBB, true);
+      nextEntryBB = createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
+      nextEntryBB = createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
     }
     errs() << "=================SUSAN: END OF marking region : " << br->getParent()->getName() << "==================\n";
   }
 
   private:
-  void createSubRegions(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, bool isElseBranch = false);
+  BasicBlock* createSubIfElseRegions(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, bool isElseBranch = false);
 
   int dominatedByReturn(BasicBlock* brBB){
     Function *F = brBB->getParent();
@@ -747,14 +775,8 @@ class IfElseRegion : public CBERegion2 {
     errs() << NoElseRegion << "\n";
     return NoElseRegion;
   }
-
-  std::vector<BasicBlock*> thenBBs;
-  std::vector<BasicBlock*> elseBBs;
   std::vector<CBERegion2*> thenSubRegions;
   std::vector<CBERegion2*> elseSubRegions;
-  std::vector<std::pair<BasicBlock*, BasicBlock*>> thenEdges;
-  std::vector<std::pair<BasicBlock*, BasicBlock*>> elseEdges;
-  PostDominatorTree *PDT;
 };
 
 
