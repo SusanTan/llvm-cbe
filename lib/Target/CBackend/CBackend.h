@@ -83,6 +83,7 @@ typedef struct LoopProfile{
 
 class CBERegion2 {
   public:
+  virtual ~CBERegion2(){};
   BasicBlock *getNextEntryBB(){
     return nextEntryBB;
   };
@@ -91,26 +92,16 @@ class CBERegion2 {
       PDT(PDT),
       entryBlock(nullptr),
       nextEntryBB(nullptr),
-      parentRegion(nullptr),
-      topRegion(nullptr) {};
+      parentRegion(nullptr){};
 
-  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, CBERegion2 *parentR, BasicBlock *entryBB, CBERegion2 *topR)
+  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, CBERegion2 *parentR, BasicBlock *entryBB)
     : LI(LI),
       PDT(PDT),
       entryBlock(entryBB),
-      parentRegion(parentR),
-      topRegion(topR) {};
+      parentRegion(parentR){};
 
   void createCBERegionDAG(BasicBlock *entryBB, CBERegion2 *parentR, BasicBlock *endBB);
-  void addBBToVisit(BasicBlock* bb){
-    remainingBBsToVisit.insert(bb);
-  }
-  void removeBBToVisit(BasicBlock* bb){
-    remainingBBsToVisit.erase(bb);
-  }
-  bool hasNoRemainingBBs(){
-    return remainingBBsToVisit.empty();
-  }
+  virtual bool isaLoopRegion() {return false;};
 
   int whichRegion(BasicBlock *entryBB, LoopInfo *LI){
     if(Loop* L = LI->getLoopFor(entryBB))
@@ -129,14 +120,13 @@ class CBERegion2 {
   BasicBlock *entryBlock; //entryBlock itself should belong to parent region
   BasicBlock *nextEntryBB;
   CBERegion2 *parentRegion;
-  CBERegion2 *topRegion;
+  //CBERegion2 *topRegion;
   LoopInfo *LI;
   PostDominatorTree *PDT;
-  std::vector<CBERegion2*>CBERegionDAG;
   CBERegion2* createSubRegions(CBERegion2* parentR, BasicBlock* entryBB);
 
   private:
-  std::set<BasicBlock*> remainingBBsToVisit;
+  std::vector<CBERegion2*>CBERegionDAG;
 };
 
 /// CWriter - This class is the main chunk of code that converts an LLVM
@@ -612,16 +602,8 @@ private:
 
 class LinearRegion : public CBERegion2{
   public:
-  LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT, CBERegion2 *topR)
-  : CBERegion2{ LI, PDT, parentR, entryBB, topR}{
-    BasicBlock *nextBB = entryBB;
-    while(nextBB){
-      topRegion->removeBBToVisit(nextBB);
-      BBs.push_back(nextBB);
-      nextEntryBB = nextBB;
-      nextBB = nextBB->getSingleSuccessor();
-    }
-  };
+  LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT);
+  bool isaLoopRegion() override {return false;};
 
   private:
   std::vector<BasicBlock*> BBs;
@@ -629,70 +611,39 @@ class LinearRegion : public CBERegion2{
 
 class LoopRegion : public CBERegion2{
   public:
-  LoopRegion (BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, CBERegion2 *parentR, CBERegion2 *topR)
-  : CBERegion2{ LI, PDT, parentR, entryBB, topR}{
-    topR->removeBBToVisit(entryBB);
-    errs() << "creating loop region for entryBB: " << entryBB->getName() << "\n";
-    parentRegion = parentR;
-    loop = LI->getLoopFor(entryBB);
-    assert(loop && "cannot find loop for a loop region\n");
-    nextEntryBB = loop->getUniqueExitBlock();
-    assert(nextEntryBB && "loop doesn't have unique exit block\n");
-
-    auto br = dyn_cast<BranchInst>(entryBB->getTerminator());
-    auto succ0 = br->getSuccessor(0);
-    auto succ1 = br->getSuccessor(1);
-    BasicBlock *bodyBB = nullptr;
-    if(succ0 == nextEntryBB) bodyBB = succ1;
-    else if(succ1 == nextEntryBB) bodyBB = succ0;
-    else assert(0 && "exit block is not from header!\n");
-    createCBERegionDAG(bodyBB, this, nextEntryBB);
-  }
+  virtual ~LoopRegion() = default;
+  LoopRegion (BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, CBERegion2 *parentR);
+  bool isaLoopRegion() override {return true;};
 
   Loop* getLoop(){ return loop; }
+  void addBBToVisit(BasicBlock* bb){
+    remainingBBsToVisit.insert(bb);
+  }
+  void removeBBToVisit(BasicBlock* bb){
+    remainingBBsToVisit.erase(bb);
+  }
+  bool hasNoRemainingBBs(){
+    return remainingBBsToVisit.empty();
+  }
+
+  void createCBERegionDAG(BasicBlock *entryBB, BasicBlock *endBB);
 
   private:
   Loop *loop;
   CBERegion2 *parentRegion;
+  std::vector<CBERegion2*>CBERegionDAG;
+  std::set<BasicBlock*> remainingBBsToVisit;
 };
 
 class IfElseRegion : public CBERegion2 {
   public:
-  IfElseRegion (BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, LoopInfo* LI, CBERegion2 *topR)
-  : CBERegion2{ LI,PDT,  parentR, entryBB, topR}{
-
-    topRegion->removeBBToVisit(entryBB);
-    BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator());
-    assert(br && "not a branch inst to start if else region\n");
-
-    BasicBlock *brBB = entryBB;
-    BasicBlock *trueStartBB = br->getSuccessor(0);
-    BasicBlock *falseStartBB = br->getSuccessor(1);
-    bool exitFunctionTrueBr = isExitingFunction(trueStartBB);
-    bool exitFunctionFalseBr = isExitingFunction(falseStartBB);
-    bool trueBrOnly = noElseRegion(true, brBB);
-    bool falseBrOnly = noElseRegion(false, brBB);
-    int returnDominated = dominatedByReturn(brBB);
-    if(!trueBrOnly && !falseBrOnly && returnDominated == -1){
-      trueBrOnly = (exitFunctionTrueBr && !exitFunctionFalseBr);
-      falseBrOnly = (exitFunctionFalseBr && !exitFunctionTrueBr);
-    }
-
-    if(trueBrOnly && returnDominated == -1){
-      nextEntryBB = createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
-    }
-    else if(falseBrOnly && returnDominated == -1){
-      nextEntryBB = createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
-    }
-    else{
-      nextEntryBB = createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
-      nextEntryBB = createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
-    }
-    errs() << "=================SUSAN: END OF marking region : " << br->getParent()->getName() << "==================\n";
-  }
+  virtual ~IfElseRegion() = default;
+  IfElseRegion (BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, LoopInfo* LI);
+  bool isaLoopRegion() override {return false;};
 
   private:
   BasicBlock* createSubIfElseRegions(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, bool isElseBranch = false);
+  void removeIfElseBlockFromLR(LoopRegion* lr, BasicBlock *brBB);
 
   int dominatedByReturn(BasicBlock* brBB){
     Function *F = brBB->getParent();
