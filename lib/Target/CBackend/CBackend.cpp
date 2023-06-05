@@ -515,37 +515,37 @@ void CWriter::markBranchRegion(Instruction* br, CBERegion* targetRegion){
 }
 
 
+int CBERegion2::whichRegion(BasicBlock *entryBB, LoopInfo *LI){
+  if(Loop* L = LI->getLoopFor(entryBB))
+    if(L->getHeader() == entryBB)
+      return 2;
+
+  if(BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator()))
+    if(br->isConditional())
+      return 1;
+
+  return 0;
+}
+
 CBERegion2* CBERegion2::createSubRegions(CBERegion2 *parentR, BasicBlock* entryBB){
   CBERegion2 *R = nullptr;
   switch (whichRegion(entryBB, LI)){
     case 0:
     {
-      if(isa<CBERegion2>(this))
-        R = new LinearRegion(entryBB, parentR, LI, PDT);
-      else
-        R = new LinearRegion(entryBB, parentR, LI, PDT);
-
       errs() << "SUSAN: entry block is a linear region! " << entryBB->getName() << "\n";
+      R = new LinearRegion(entryBB, parentR, LI, PDT, DT);
       break;
     }
     case 1:
     {
-      if(isa<CBERegion2>(this))
-        R = new IfElseRegion(entryBB, parentR, PDT, LI);
-      else
-        R = new IfElseRegion(entryBB, parentR, PDT, LI);
-
       errs() << "SUSAN: entry block is an if-else region! " << entryBB->getName() << "\n";
+      R = new IfElseRegion(entryBB, parentR, PDT, DT, LI);
       break;
     }
     case 2:
     {
-      if(isa<CBERegion2>(this))
-        R = new LoopRegion(entryBB, LI, PDT, parentR);
-      else
-        R = new LoopRegion(entryBB, LI, PDT, parentR);
-
       errs() << "SUSAN: entry block is a loop region! " << entryBB->getName() << "\n";
+      R = new LoopRegion(entryBB, LI, PDT, DT, parentR);
       break;
     }
   }
@@ -553,30 +553,60 @@ CBERegion2* CBERegion2::createSubRegions(CBERegion2 *parentR, BasicBlock* entryB
 }
 
 
-LinearRegion::LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT)
-: CBERegion2{ LI, PDT, parentR, entryBB}{
+LinearRegion::LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT, DominatorTree *DT)
+: CBERegion2{ LI, PDT, DT, parentR, entryBB}{
   BasicBlock *nextBB = entryBB;
+  Loop *l = LI->getLoopFor(entryBB);
+  LoopRegion* lr = getParentLoopRegion();
   while(nextBB){
-    if(parentR && parentR->isaLoopRegion())
-      ((LoopRegion*)parentR)->removeBBToVisit(nextBB);
+    if(lr)
+      lr->removeBBToVisit(nextBB);
     BBs.push_back(nextBB);
     nextEntryBB = nextBB;
+    if(l && l->getLoopLatch() == nextBB) break;
     nextBB = nextBB->getSingleSuccessor();
   }
 }
 
-IfElseRegion::IfElseRegion(BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, LoopInfo* LI) : CBERegion2{ LI,PDT,  parentR, entryBB}{
 
+bool IfElseRegion::noElseRegion(bool trueBranch){
+  std::set<BasicBlock*> branchBBs = trueBranch ? falseBBs : trueBBs;
+  bool NoElseRegion = true;
+  for(auto bb : branchBBs){
+    for(auto &I : *bb){
+      if(!isa<BranchInst>(&I)){
+        NoElseRegion = false;
+        break;
+      }
+    }
+  }
+  errs() << NoElseRegion << "\n";
+  return NoElseRegion;
+}
+
+IfElseRegion::IfElseRegion(BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, DominatorTree *DT, LoopInfo* LI) : CBERegion2{ LI, PDT, DT, parentR, entryBB}{
+
+    /*fetch branch related infos*/
+    this->brBB = entryBB;
     BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator());
     assert(br && "not a branch inst to start if else region\n");
-
-    BasicBlock *brBB = entryBB;
-    BasicBlock *trueStartBB = br->getSuccessor(0);
-    BasicBlock *falseStartBB = br->getSuccessor(1);
+    this->trueStartBB = br->getSuccessor(0);
+    this->falseStartBB = br->getSuccessor(1);
+    for(auto &BB : *(brBB->getParent()))
+      if(PDT->dominates(&BB, brBB)){
+        this->pdBB = &BB;
+        break;
+      }
+    for(auto &BB : *(brBB->getParent())){
+      if(DT->dominates(trueStartBB, &BB) && PDT->dominates(pdBB, &BB) && pdBB != &BB)
+        trueBBs.insert(&BB);
+      if(DT->dominates(falseStartBB, &BB) && PDT->dominates(pdBB, &BB) && pdBB != &BB)
+        falseBBs.insert(&BB);
+    }
     bool exitFunctionTrueBr = isExitingFunction(trueStartBB);
     bool exitFunctionFalseBr = isExitingFunction(falseStartBB);
-    bool trueBrOnly = noElseRegion(true, brBB);
-    bool falseBrOnly = noElseRegion(false, brBB);
+    bool trueBrOnly = noElseRegion(true);
+    bool falseBrOnly = noElseRegion(false);
     int returnDominated = dominatedByReturn(brBB);
     if(!trueBrOnly && !falseBrOnly && returnDominated == -1){
       trueBrOnly = (exitFunctionTrueBr && !exitFunctionFalseBr);
@@ -584,12 +614,21 @@ IfElseRegion::IfElseRegion(BasicBlock *entryBB, CBERegion2 *parentR, PostDominat
     }
 
     if(trueBrOnly && returnDominated == -1){
+      errs() << "SUSAN: marking only true branch\n";
+      if(auto lr = getParentLoopRegion())
+        for(auto BB : falseBBs)
+          lr->removeBBToVisit(BB);
       nextEntryBB = createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
     }
     else if(falseBrOnly && returnDominated == -1){
+      errs() << "SUSAN: marking only false branch\n";
+      if(auto lr = getParentLoopRegion())
+        for(auto BB : trueBBs)
+          lr->removeBBToVisit(BB);
       nextEntryBB = createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
     }
     else{
+      errs() << "SUSAN: marking both branches\n";
       nextEntryBB = createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
       nextEntryBB = createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
     }
@@ -597,8 +636,14 @@ IfElseRegion::IfElseRegion(BasicBlock *entryBB, CBERegion2 *parentR, PostDominat
     if(parentR && parentR->isaLoopRegion())
       removeIfElseBlockFromLR((LoopRegion*)parentR, brBB);
     errs() << "=================SUSAN: END OF marking region : " << br->getParent()->getName() << "==================\n";
-  }
+}
+
+
 BasicBlock* IfElseRegion::createSubIfElseRegions(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, bool isElseBranch){
+    LoopRegion* lr = getParentLoopRegion();
+    if(lr)
+      lr->removeBBToVisit(brBlock);
+
     BasicBlock *currBB = start;
     while (!PDT->dominates(currBB, brBlock) && currBB != otherStart){
       CBERegion2 *subR = createSubRegions(this, currBB);
@@ -898,6 +943,37 @@ std::set<BasicBlock*> CWriter::findRegionEntriesOfBB (BasicBlock* BB){
    return entries;
 }
 
+void LinearRegion::print(){
+  for(auto BB : BBs)
+    errs() << BB->getName() << "\n";
+}
+void IfElseRegion::print(){
+  errs() << "thenSubRegions : \n";
+  for(auto R : thenSubRegions)
+    R->print();
+  errs() << "thenSubRegions : \n";
+  for(auto R : elseSubRegions)
+    R->print();
+}
+void LoopRegion::print(){
+  errs() << "Loop: " << *loop << "\n";
+  for(auto R : CBERegionDAG)
+    R->print();
+}
+void CBERegion2::print(){
+  errs() << "======================Printing CBERegions================\n";
+  errs() << "Top CBERegion\n";
+  for(auto R : CBERegionDAG){
+    if(R->isaLinearRegion())
+      errs() << "Linear Region with entry block: " << R->getEntryBlock()->getName() << "\n";
+    if(R->isaIfElseRegion())
+      errs() << "IfElse Region with entry block: " << R->getEntryBlock()->getName() << "\n";
+    if(R->isaLoopRegion())
+      errs() << "Loop Region with entry block: " << R->getEntryBlock()->getName() << "\n";
+    R->print();
+  }
+}
+
 void CWriter::determineControlFlowTranslationMethod(Function &F){
   NATURAL_CONTROL_FLOW = true;
   markBBwithNumOfVisits(F);
@@ -910,9 +986,9 @@ void CWriter::determineControlFlowTranslationMethod(Function &F){
     }
   assert(returnBB && "didn't find returnBB\n");
 
-  CBERegion2 *TopRegion = new CBERegion2(LI, PDT);
-
+  CBERegion2 *TopRegion = new CBERegion2(LI, PDT, DT);
   TopRegion->createCBERegionDAG(&F.getEntryBlock(), nullptr, returnBB);
+  TopRegion->print();
 }
 
 Instruction *CWriter::getIVIncrement(Loop *L, PHINode* IV) {
@@ -8001,9 +8077,9 @@ void IfElseRegion::removeIfElseBlockFromLR(LoopRegion* lr, BasicBlock *brBB){
     BasicBlock* currBB = toVisit.front();
     toVisit.pop();
 
-    if(PDT->dominates(currBB, brBB)) break;
-
     lr->removeBBToVisit(currBB);
+    if(brBB != currBB && PDT->dominates(currBB, brBB)) break;
+
     for (auto succ = succ_begin(currBB); succ != succ_end(currBB); ++succ){
       BasicBlock *succBB = *succ;
       if(visited.find(succBB) == visited.end()){
@@ -8041,32 +8117,37 @@ void CWriter::emitIfBlock(CBERegion *R, bool doNotPrintReturn, bool isElseBranch
    }
 }
 
-LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, CBERegion2 *parentR)
-  : CBERegion2{ LI, PDT, parentR, entryBB}{
+LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, DominatorTree *DT, CBERegion2 *parentR)
+  : CBERegion2{ LI, PDT, DT, parentR, entryBB}{
     errs() << "creating loop region for entryBB: " << entryBB->getName() << "\n";
+
     parentRegion = parentR;
     loop = LI->getLoopFor(entryBB);
     assert(loop && "cannot find loop for a loop region\n");
     nextEntryBB = loop->getUniqueExitBlock();
     assert(nextEntryBB && "loop doesn't have unique exit block\n");
 
+    auto loopBBs = loop->getBlocks();
+    LoopRegion* lr = getParentLoopRegion();
+    for( auto BB : loopBBs){
+      if(lr)
+        lr->removeBBToVisit(BB);
+
+      if(BB != entryBB){
+        errs() << "SUSAN: adding to remainingBBsToVisit: " << BB->getName() << "\n";
+        remainingBBsToVisit.insert(BB);
+      }
+    }
+
+    BasicBlock* startBB = entryBB;
     auto br = dyn_cast<BranchInst>(entryBB->getTerminator());
     auto succ0 = br->getSuccessor(0);
     auto succ1 = br->getSuccessor(1);
     BasicBlock *bodyBB = nullptr;
-    if(succ0 == nextEntryBB) bodyBB = succ1;
-    else if(succ1 == nextEntryBB) bodyBB = succ0;
+    if(succ0 == nextEntryBB) startBB = succ1;
+    else if(succ1 == nextEntryBB) startBB = succ0;
     else assert(0 && "exit block is not from header!\n");
-
-
-    auto loopBBs = loop->getBlocks();
-    for( auto BB : loopBBs){
-      if(parentR && parentR->isaLoopRegion())
-        ((LoopRegion*)parentR)->removeBBToVisit(entryBB);
-      if(BB != entryBB)
-        remainingBBsToVisit.insert(BB);
-    }
-    createCBERegionDAG(bodyBB, nextEntryBB);
+    createCBERegionDAG(startBB, nextEntryBB);
 }
 
 bool CWriter::noElseRegion(bool trueBranch, BasicBlock *brBB){

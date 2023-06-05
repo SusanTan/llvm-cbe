@@ -81,40 +81,49 @@ typedef struct LoopProfile{
   int chunksize;
 } LoopProfile;
 
+class CBERegion2;
+class LoopRegion;
+
 class CBERegion2 {
   public:
   virtual ~CBERegion2(){};
   BasicBlock *getNextEntryBB(){
     return nextEntryBB;
   };
-  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT)
+  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, DominatorTree* DT)
     : LI(LI),
       PDT(PDT),
+      DT(DT),
       entryBlock(nullptr),
       nextEntryBB(nullptr),
       parentRegion(nullptr){};
 
-  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, CBERegion2 *parentR, BasicBlock *entryBB)
+  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, DominatorTree *DT, CBERegion2 *parentR, BasicBlock *entryBB)
     : LI(LI),
       PDT(PDT),
+      DT(DT),
       entryBlock(entryBB),
       parentRegion(parentR){};
 
   void createCBERegionDAG(BasicBlock *entryBB, CBERegion2 *parentR, BasicBlock *endBB);
   virtual bool isaLoopRegion() {return false;};
+  virtual bool isaLinearRegion() {return false;};
+  virtual bool isaIfElseRegion() {return false;};
+  CBERegion2* getParentRegion(){return parentRegion;};
+  virtual void print();
+  BasicBlock *getEntryBlock(){return entryBlock;};
 
-  int whichRegion(BasicBlock *entryBB, LoopInfo *LI){
-    if(Loop* L = LI->getLoopFor(entryBB))
-      if(L->getHeader() == entryBB)
-        return 2; //loop region
-
-    if(BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator()))
-      if(br->isConditional())
-        return 1;
-
-    return 0;
+  LoopRegion* getParentLoopRegion(){
+    auto ancestorR = parentRegion;
+    while(ancestorR){
+      if(ancestorR->isaLoopRegion())
+        break;
+      ancestorR = ancestorR->getParentRegion();
+    }
+    return (LoopRegion*)ancestorR;
   }
 
+  int whichRegion(BasicBlock *entryBB, LoopInfo *LI);
 
   protected:
   BasicBlock *entryBlock; //entryBlock itself should belong to parent region
@@ -123,6 +132,7 @@ class CBERegion2 {
   //CBERegion2 *topRegion;
   LoopInfo *LI;
   PostDominatorTree *PDT;
+  DominatorTree *DT;
   CBERegion2* createSubRegions(CBERegion2* parentR, BasicBlock* entryBB);
 
   private:
@@ -602,8 +612,11 @@ private:
 
 class LinearRegion : public CBERegion2{
   public:
-  LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT);
+  LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT, DominatorTree *DT);
   bool isaLoopRegion() override {return false;};
+  bool isaLinearRegion() override {return true;};
+  bool isaIfElseRegion() override {return false;};
+  void print() override;
 
   private:
   std::vector<BasicBlock*> BBs;
@@ -612,14 +625,18 @@ class LinearRegion : public CBERegion2{
 class LoopRegion : public CBERegion2{
   public:
   virtual ~LoopRegion() = default;
-  LoopRegion (BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, CBERegion2 *parentR);
+  LoopRegion (BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, DominatorTree *DT, CBERegion2 *parentR);
   bool isaLoopRegion() override {return true;};
+  bool isaLinearRegion() override {return false;};
+  bool isaIfElseRegion() override {return false;};
+  void print() override;
 
   Loop* getLoop(){ return loop; }
   void addBBToVisit(BasicBlock* bb){
     remainingBBsToVisit.insert(bb);
   }
   void removeBBToVisit(BasicBlock* bb){
+    errs() << "SUSAN: removing from remainingBBsToVisit " << bb->getName() << "\n";
     remainingBBsToVisit.erase(bb);
   }
   bool hasNoRemainingBBs(){
@@ -638,8 +655,11 @@ class LoopRegion : public CBERegion2{
 class IfElseRegion : public CBERegion2 {
   public:
   virtual ~IfElseRegion() = default;
-  IfElseRegion (BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, LoopInfo* LI);
+  IfElseRegion (BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, DominatorTree *DT, LoopInfo* LI);
   bool isaLoopRegion() override {return false;};
+  bool isaLinearRegion() override {return false;};
+  bool isaIfElseRegion() override {return true;};
+  void print() override;
 
   private:
   BasicBlock* createSubIfElseRegions(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, bool isElseBranch = false);
@@ -679,55 +699,15 @@ class IfElseRegion : public CBERegion2 {
     else return nullptr;
   }
 
-  bool noElseRegion(bool trueBranch, BasicBlock *brBB){
-    BranchInst *br = dyn_cast<BranchInst>(brBB->getTerminator());
-    errs() << "SUSAN: noElseRegion " << trueBranch << "for br: " << *br << "\n";
-    BasicBlock *startBB = trueBranch ? br->getSuccessor(1) : br->getSuccessor(0);
-
-    // find immediate PD BB
-    BasicBlock *pdBB = nullptr;
-    std::queue<BasicBlock*> toVisit;
-    std::set<BasicBlock*> visited;
-    toVisit.push(startBB);
-    visited.insert(startBB);
-    std::set<BasicBlock*> inBetweenBBs;
-    while(!toVisit.empty()){
-      BasicBlock* currBB = toVisit.front();
-      toVisit.pop();
-
-      if(PDT->dominates(currBB, brBB)){
-        pdBB = currBB;
-        break;
-      }
-      inBetweenBBs.insert(currBB);
-
-      for (auto succ = succ_begin(currBB); succ != succ_end(currBB); ++succ){
-        BasicBlock *succBB = *succ;
-        if(visited.find(succBB) == visited.end()){
-          visited.insert(succBB);
-          toVisit.push(succBB);
-        }
-      }
-    }
-
-    assert(pdBB && "pdBB not found\n");
-    errs() << "SUSAN: found pdBB " << *pdBB << "\n";
-
-    bool NoElseRegion = true;
-    for(auto bb : inBetweenBBs){
-      for(auto &I : *bb){
-        if(!isa<BranchInst>(&I)){
-          NoElseRegion = false;
-          break;
-        }
-      }
-    }
-
-    errs() << NoElseRegion << "\n";
-    return NoElseRegion;
-  }
+  bool noElseRegion(bool trueBranch);
   std::vector<CBERegion2*> thenSubRegions;
   std::vector<CBERegion2*> elseSubRegions;
+  BasicBlock* brBB;
+  BasicBlock* pdBB;
+  BasicBlock* trueStartBB;
+  BasicBlock* falseStartBB;
+  std::set<BasicBlock*> trueBBs;
+  std::set<BasicBlock*> falseBBs;
 };
 
 
