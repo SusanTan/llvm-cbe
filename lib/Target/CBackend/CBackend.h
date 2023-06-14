@@ -636,7 +636,6 @@ class LoopRegion : public CBERegion2{
     remainingBBsToVisit.insert(bb);
   }
   void removeBBToVisit(BasicBlock* bb){
-    errs() << "SUSAN: removing from remainingBBsToVisit " << bb->getName() << "\n";
     remainingBBsToVisit.erase(bb);
   }
   bool hasNoRemainingBBs(){
@@ -650,6 +649,7 @@ class LoopRegion : public CBERegion2{
   CBERegion2 *parentRegion;
   std::vector<CBERegion2*>CBERegionDAG;
   std::set<BasicBlock*> remainingBBsToVisit;
+  BasicBlock *latchBB;
 };
 
 class IfElseRegion : public CBERegion2 {

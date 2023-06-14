@@ -555,16 +555,24 @@ CBERegion2* CBERegion2::createSubRegions(CBERegion2 *parentR, BasicBlock* entryB
 
 LinearRegion::LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT, DominatorTree *DT)
 : CBERegion2{ LI, PDT, DT, parentR, entryBB}{
+  /*for return block*/
+  if(isa<ReturnInst>(entryBB->getTerminator())){
+    BBs.push_back(entryBB);
+    nextEntryBB = nullptr;
+    return;
+  }
+
   BasicBlock *nextBB = entryBB;
   Loop *l = LI->getLoopFor(entryBB);
   LoopRegion* lr = getParentLoopRegion();
-  while(nextBB){
+  while(true){
     if(lr)
       lr->removeBBToVisit(nextBB);
     BBs.push_back(nextBB);
-    nextEntryBB = nextBB;
-    if(l && l->getLoopLatch() == nextBB) break;
     nextBB = nextBB->getSingleSuccessor();
+    nextEntryBB = nextBB;
+    if(nextBB->getSingleSuccessor() == nullptr
+        || (l && l->getLoopLatch() == nextBB)) break;
   }
 }
 
@@ -585,7 +593,7 @@ bool IfElseRegion::noElseRegion(bool trueBranch){
 }
 
 IfElseRegion::IfElseRegion(BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, DominatorTree *DT, LoopInfo* LI) : CBERegion2{ LI, PDT, DT, parentR, entryBB}{
-
+    errs() << "creating if-else region for entryBB: " << entryBB->getName() << "\n";
     /*fetch branch related infos*/
     this->brBB = entryBB;
     BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator());
@@ -666,11 +674,9 @@ void LoopRegion::createCBERegionDAG(BasicBlock* entryBB, BasicBlock *endBB){
 }
 
 void CBERegion2::createCBERegionDAG(BasicBlock* entryBB, CBERegion2 *parentR, BasicBlock *endBB){
-  // end search
-  if(entryBB == endBB) return;
-
   CBERegion2 *entryR = createSubRegions(parentR, entryBB);
   CBERegionDAG.push_back(entryR);
+  if(entryBB == endBB) return;
 
   BasicBlock *nextRegionEntryBB = entryR->getNextEntryBB();
   errs() << "SUSAN: nextRegionEntryBB " << nextRegionEntryBB->getName() << "\n";
@@ -944,34 +950,29 @@ std::set<BasicBlock*> CWriter::findRegionEntriesOfBB (BasicBlock* BB){
 }
 
 void LinearRegion::print(){
+  errs() << "Linear Region with entry block: " << getEntryBlock()->getName() << "\n";
   for(auto BB : BBs)
     errs() << BB->getName() << "\n";
 }
 void IfElseRegion::print(){
+  errs() << "IfElse Region with entry block: " << getEntryBlock()->getName() << "\n";
   errs() << "thenSubRegions : \n";
   for(auto R : thenSubRegions)
     R->print();
-  errs() << "thenSubRegions : \n";
+  errs() << "elseSubRegions : \n";
   for(auto R : elseSubRegions)
     R->print();
 }
 void LoopRegion::print(){
-  errs() << "Loop: " << *loop << "\n";
+  errs() << "Loop Region with entry block: " << getEntryBlock()->getName() << "\n";
   for(auto R : CBERegionDAG)
     R->print();
 }
 void CBERegion2::print(){
   errs() << "======================Printing CBERegions================\n";
   errs() << "Top CBERegion\n";
-  for(auto R : CBERegionDAG){
-    if(R->isaLinearRegion())
-      errs() << "Linear Region with entry block: " << R->getEntryBlock()->getName() << "\n";
-    if(R->isaIfElseRegion())
-      errs() << "IfElse Region with entry block: " << R->getEntryBlock()->getName() << "\n";
-    if(R->isaLoopRegion())
-      errs() << "Loop Region with entry block: " << R->getEntryBlock()->getName() << "\n";
+  for(auto R : CBERegionDAG)
     R->print();
-  }
 }
 
 void CWriter::determineControlFlowTranslationMethod(Function &F){
@@ -8123,8 +8124,10 @@ LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT
 
     parentRegion = parentR;
     loop = LI->getLoopFor(entryBB);
+    latchBB = loop->getLoopLatch();
     assert(loop && "cannot find loop for a loop region\n");
     nextEntryBB = loop->getUniqueExitBlock();
+    errs() << "next entry BB: " << nextEntryBB->getName() << "\n";
     assert(nextEntryBB && "loop doesn't have unique exit block\n");
 
     auto loopBBs = loop->getBlocks();
@@ -8132,11 +8135,8 @@ LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT
     for( auto BB : loopBBs){
       if(lr)
         lr->removeBBToVisit(BB);
-
-      if(BB != entryBB){
-        errs() << "SUSAN: adding to remainingBBsToVisit: " << BB->getName() << "\n";
+      if(BB != entryBB && BB != latchBB)
         remainingBBsToVisit.insert(BB);
-      }
     }
 
     BasicBlock* startBB = entryBB;
