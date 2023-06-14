@@ -81,6 +81,7 @@ typedef struct LoopProfile{
   int chunksize;
 } LoopProfile;
 
+class CWriter;
 class CBERegion2;
 class LoopRegion;
 
@@ -90,20 +91,22 @@ class CBERegion2 {
   BasicBlock *getNextEntryBB(){
     return nextEntryBB;
   };
-  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, DominatorTree* DT)
+  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, DominatorTree* DT, CWriter *cwriter)
     : LI(LI),
       PDT(PDT),
       DT(DT),
+      cw(cwriter),
       entryBlock(nullptr),
       nextEntryBB(nullptr),
       parentRegion(nullptr){};
 
-  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, DominatorTree *DT, CBERegion2 *parentR, BasicBlock *entryBB)
+  CBERegion2 (LoopInfo* LI, PostDominatorTree *PDT, DominatorTree *DT, CBERegion2 *parentR, BasicBlock *entryBB, CWriter *cwriter)
     : LI(LI),
       PDT(PDT),
       DT(DT),
       entryBlock(entryBB),
-      parentRegion(parentR){};
+      parentRegion(parentR),
+      cw(cwriter){};
 
   void createCBERegionDAG(BasicBlock *entryBB, CBERegion2 *parentR, BasicBlock *endBB);
   virtual bool isaLoopRegion() {return false;};
@@ -112,6 +115,7 @@ class CBERegion2 {
   CBERegion2* getParentRegion(){return parentRegion;};
   virtual void print();
   BasicBlock *getEntryBlock(){return entryBlock;};
+  virtual void printRegionDAG();
 
   LoopRegion* getParentLoopRegion(){
     auto ancestorR = parentRegion;
@@ -134,6 +138,7 @@ class CBERegion2 {
   PostDominatorTree *PDT;
   DominatorTree *DT;
   CBERegion2* createSubRegions(CBERegion2* parentR, BasicBlock* entryBB);
+  CWriter *cw;
 
   private:
   std::vector<CBERegion2*>CBERegionDAG;
@@ -143,6 +148,10 @@ class CBERegion2 {
 /// module to a C translation unit.
 class CWriter : public ModulePass, public InstVisitor<CWriter> {
 
+  public:
+  void printBasicBlock(BasicBlock *BB, std::set<Value*> skipInsts = std::set<Value*>());
+
+  private:
   //SUSAN: counters
   int cnt_totalVariables;
   int cnt_reconstructedVariables;
@@ -524,7 +533,6 @@ private:
   void printFloatingPointConstants(const Constant *C);
 
   void printFunction(Function &F, bool inlineF=false);
-  void printBasicBlock(BasicBlock *BB, std::set<Value*> skipInsts = std::set<Value*>());
   void printLoop(Loop *L);
   void printLoopNew(Loop *L);
 
@@ -612,11 +620,12 @@ private:
 
 class LinearRegion : public CBERegion2{
   public:
-  LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT, DominatorTree *DT);
+  LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT, DominatorTree *DT, CWriter *cwriter);
   bool isaLoopRegion() override {return false;};
   bool isaLinearRegion() override {return true;};
   bool isaIfElseRegion() override {return false;};
   void print() override;
+  void printRegionDAG() override;
 
   private:
   std::vector<BasicBlock*> BBs;
@@ -625,11 +634,12 @@ class LinearRegion : public CBERegion2{
 class LoopRegion : public CBERegion2{
   public:
   virtual ~LoopRegion() = default;
-  LoopRegion (BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, DominatorTree *DT, CBERegion2 *parentR);
+  LoopRegion (BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, DominatorTree *DT, CBERegion2 *parentR, CWriter *cwriter);
   bool isaLoopRegion() override {return true;};
   bool isaLinearRegion() override {return false;};
   bool isaIfElseRegion() override {return false;};
   void print() override;
+  void printRegionDAG() override;
 
   Loop* getLoop(){ return loop; }
   void addBBToVisit(BasicBlock* bb){
@@ -655,11 +665,12 @@ class LoopRegion : public CBERegion2{
 class IfElseRegion : public CBERegion2 {
   public:
   virtual ~IfElseRegion() = default;
-  IfElseRegion (BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, DominatorTree *DT, LoopInfo* LI);
+  IfElseRegion (BasicBlock *entryBB, CBERegion2 *parentR, PostDominatorTree *PDT, DominatorTree *DT, LoopInfo* LI, CWriter *cwriter);
   bool isaLoopRegion() override {return false;};
   bool isaLinearRegion() override {return false;};
   bool isaIfElseRegion() override {return true;};
   void print() override;
+  void printRegionDAG() override;
 
   private:
   BasicBlock* createSubIfElseRegions(BasicBlock* start, BasicBlock *brBlock, BasicBlock *otherStart, bool isElseBranch = false);
