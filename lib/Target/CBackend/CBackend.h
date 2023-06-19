@@ -650,12 +650,12 @@ class LoopRegion : public CBERegion2{
     return remainingBBsToVisit.empty();
   }
 
-  void createCBERegionDAG(BasicBlock *entryBB, BasicBlock *endBB);
+  void createCBERegionDAG(BasicBlock *entryBB);
 
   private:
   Loop *loop;
   CBERegion2 *parentRegion;
-  std::vector<CBERegion2*>CBERegionDAG;
+  std::vector<CBERegion2*>LoopBodyRegionDAG;
   std::set<BasicBlock*> remainingBBsToVisit;
   BasicBlock *latchBB;
   Value *ub, *lb, *incr;

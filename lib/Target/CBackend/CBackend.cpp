@@ -665,11 +665,11 @@ BasicBlock* IfElseRegion::createSubIfElseRegions(BasicBlock* start, BasicBlock *
     return currBB;
 }
 
-void LoopRegion::createCBERegionDAG(BasicBlock* entryBB, BasicBlock *endBB){
+void LoopRegion::createCBERegionDAG(BasicBlock* entryBB){
   BasicBlock *nextRegionEntryBB = entryBB;
   while(!this->hasNoRemainingBBs()){
     CBERegion2 *entryR = createSubRegions(this, nextRegionEntryBB);
-    CBERegionDAG.push_back(entryR);
+    LoopBodyRegionDAG.push_back(entryR);
     nextRegionEntryBB = entryR->getNextEntryBB();
     errs() << "SUSAN: nextRegionEntryBB " << nextRegionEntryBB->getName() << "\n";
   }
@@ -967,7 +967,7 @@ void IfElseRegion::print(){
 }
 void LoopRegion::print(){
   errs() << "Loop Region with entry block: " << getEntryBlock()->getName() << "\n";
-  for(auto R : CBERegionDAG)
+  for(auto R : LoopBodyRegionDAG)
     R->print();
 }
 void CBERegion2::print(){
@@ -6331,8 +6331,15 @@ void LoopRegion::printRegionDAG(){
   cw->printInstruction(cast<Instruction>(incr), false);
   cw->Out << "){\n";
 
-  for(auto R : CBERegionDAG)
+  //print loop body
+  for(auto R : LoopBodyRegionDAG)
     R->printRegionDAG();
+
+  //print extra instructions in a latch other than incr and br
+  for(auto &I : *latchBB)
+    if(incr != &I && latchBB->getTerminator() != &I)
+      cw->printInstruction(&I);
+
   cw->Out << "}\n";
 }
 
@@ -8210,6 +8217,7 @@ void CWriter::emitIfBlock(CBERegion *R, bool doNotPrintReturn, bool isElseBranch
 
 LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, DominatorTree *DT, CBERegion2 *parentR, CWriter *cwriter)
   : CBERegion2{ LI, PDT, DT, parentR, entryBB, cwriter}{
+    //latch BB isn't considered a loop body;
     errs() << "creating loop region for entryBB: " << entryBB->getName() << "\n";
 
     parentRegion = parentR;
@@ -8252,7 +8260,7 @@ LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT
     if(succ0 == nextEntryBB) startBB = succ1;
     else if(succ1 == nextEntryBB) startBB = succ0;
     else assert(0 && "exit block is not from header!\n");
-    createCBERegionDAG(startBB, nextEntryBB);
+    createCBERegionDAG(startBB);
 }
 
 bool CWriter::noElseRegion(bool trueBranch, BasicBlock *brBB){
