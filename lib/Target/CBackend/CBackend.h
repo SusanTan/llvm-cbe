@@ -150,6 +150,32 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
 
   public:
   void printBasicBlock(BasicBlock *BB, std::set<Value*> skipInsts = std::set<Value*>());
+  raw_string_ostream Out;
+  enum OperandContext {
+    ContextNormal,
+    ContextCasted,
+    ContextStatic
+  };
+  void writeOperandDeref(Value *Operand);
+  void writeOperand(Value *Operand,
+                    enum OperandContext Context = ContextNormal, bool startExpression = true);
+  void writeInstComputationInline(Instruction &I, bool startExpression=true);
+  void writeOperandInternal(Value *Operand,
+                            enum OperandContext Context = ContextNormal, bool startExpression = true);
+  void writeOperandWithCast(Value *Operand, unsigned Opcode, bool startExpression = true);
+  void opcodeNeedsCast(unsigned Opcode, bool &shouldCast, bool &castIsSigned);
+
+  void writeOperandWithCast(Value *Operand, ICmpInst &I);
+  Instruction* findCondInst(Loop *L, bool &negateCondition);
+  void findCondRelatedInsts(BasicBlock *skipBlock, std::set<Value*> &condRelatedInsts);
+  bool isIVIncrement(Value* V);
+  bool isInlinableInst(Instruction &I) const;
+  void printInstruction(Instruction *I, bool printSemiColon = true);
+  PHINode* getInductionVariable(Loop *L);
+  Instruction *getIVIncrement(Loop *L, PHINode* IV);
+  void printCmpOperator(ICmpInst *icmp, bool negateCondition = false);
+  std::string GetValueName(Value *Operand, bool isDeclaration=false);
+
 
   private:
   //SUSAN: counters
@@ -229,7 +255,6 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   std::string _Out;
   std::string _OutHeaders;
   raw_string_ostream OutHeaders;
-  raw_string_ostream Out;
   raw_ostream &FileOut;
   IntrinsicLowering *IL = nullptr;
   LoopInfo *LI = nullptr;
@@ -410,16 +435,6 @@ private:
   std::string getArrayName(ArrayType *AT);
   std::string getVectorName(VectorType *VT, bool Aligned);
 
-  enum OperandContext {
-    ContextNormal,
-    ContextCasted,
-    // Casted context means the type-cast will be implicit,
-    // such as the RHS of a `var = RHS;` expression
-    // or inside a struct initializer expression
-    ContextStatic
-    // Static context means that it is being used in as a static initializer
-    // (also implies ContextCasted)
-  };
 
   // SUSAN: added functions
   void emitIfBlock(CBERegion *R, bool doNotPrintReturn=false, bool isElseBranch=false);
@@ -427,8 +442,6 @@ private:
   void NodeSplitting(Function &F);
   void markIfBranches(Function &F, std::set<BasicBlock*> *visitedBBs);
   void markGotoBranches(Function &F);
-  void printCmpOperator(ICmpInst *icmp, bool negateCondition = false);
-  void printInstruction(Instruction *I, bool printSemiColon = true);
   void printPHICopiesForAllPhis(BasicBlock *CurBlock, unsigned Indent);
   void emitSwitchBlock(BasicBlock* start, BasicBlock *brBlockk);
   bool GEPAccessesMemory(GetElementPtrInst *I);
@@ -461,17 +474,14 @@ private:
   void omp_preprossesing(Function &F);
   Loop* findLoopAccordingTo(Function &F, Value *bound);
   void CreateOmpLoops(Loop *L, Value* ub, Value *lb, Value *incr);
-  Instruction* findCondInst(Loop *L, bool &negateCondition);
   LoopProfile* findLoopProfile(Loop *L);
   void printLoopBody(LoopProfile *LP, Instruction *condInst,  std::set<Value*> &skipInsts);
   bool isInductionVariable(Value* V);
   bool isExtraInductionVariable(Value* V);
-  bool isIVIncrement(Value* V);
   void initializeLoopPHIs(Loop *L);
   void printPHIsIfNecessary(BasicBlock* BB);
   void FindLiveInsFor(Loop *L, Value *val);
   void searchForBlocksToSkip(Loop *L, std::set<BasicBlock*> &skipBlocks);
-  void findCondRelatedInsts(BasicBlock *skipBlock, std::set<Value*> &condRelatedInsts);
   void DeclareLocalVariable(Instruction *I, bool &PrintedVar, bool &isDeclared, std::set<std::string> &declaredLocals);
   void OMP_RecordLiveIns(LoopProfile *LP);
   void keepIVUnrelatedInsts(BasicBlock *skipBB, Instruction *condInst, std::set<Instruction*> &InstsKeptFromSkipBlock);
@@ -487,7 +497,6 @@ private:
   void FindInductionVariableRelationships();
   bool isExtraIVIncrement(Value* V);
   void findOMPFunctions(Module &M);
-  Instruction *getIVIncrement(Loop *L, PHINode* IV);
   void preprocessIVIncrements();
   Value* findOriginalUb(Function &F, Value *ub, CallInst *initCI, CallInst *prevFini, int &offset);
   void preprocessInsts2AddParenthesis(Function &F);
@@ -503,16 +512,7 @@ private:
   void findMallocType(Function &F);
 
 
-  void writeOperandDeref(Value *Operand);
-  void writeOperand(Value *Operand,
-                    enum OperandContext Context = ContextNormal, bool startExpression = true);
-  void writeInstComputationInline(Instruction &I, bool startExpression=true);
-  void writeOperandInternal(Value *Operand,
-                            enum OperandContext Context = ContextNormal, bool startExpression = true);
-  void writeOperandWithCast(Value *Operand, unsigned Opcode, bool startExpression = true);
-  void opcodeNeedsCast(unsigned Opcode, bool &shouldCast, bool &castIsSigned);
 
-  void writeOperandWithCast(Value *Operand, ICmpInst &I);
   bool writeInstructionCast(Instruction &I);
   void writeMemoryAccess(Value *Operand, Type *OperandType, bool IsVolatile,
                          unsigned Alignment);
@@ -549,7 +549,6 @@ private:
   bool isEmptyType(Type *Ty) const;
   Type *skipEmptyArrayTypes(Type *Ty) const;
   bool isAddressExposed(Value *V) const;
-  bool isInlinableInst(Instruction &I) const;
   AllocaInst *isDirectAlloca(Value *V) const;
   bool isInlineAsm(Instruction &I) const;
 
@@ -611,7 +610,6 @@ private:
   bool printGEPExpressionStruct(Value *Ptr, gep_type_iterator I, gep_type_iterator E, bool accessMemory = false, bool printReference = false);
   void printGEPExpressionArray(Value *Ptr, gep_type_iterator I, gep_type_iterator E, bool accessMemory=false);
 
-  std::string GetValueName(Value *Operand, bool isDeclaration=false);
 
   friend class CWriterTestHelper;
 };
@@ -660,6 +658,10 @@ class LoopRegion : public CBERegion2{
   std::vector<CBERegion2*>CBERegionDAG;
   std::set<BasicBlock*> remainingBBsToVisit;
   BasicBlock *latchBB;
+  Value *ub, *lb, *incr;
+  PHINode *IV;
+  Instruction *IVInc;
+  int nestlevel;
 };
 
 class IfElseRegion : public CBERegion2 {
@@ -714,6 +716,7 @@ class IfElseRegion : public CBERegion2 {
   std::vector<CBERegion2*> thenSubRegions;
   std::vector<CBERegion2*> elseSubRegions;
   BasicBlock* brBB;
+  BranchInst* brInst;
   BasicBlock* pdBB;
   BasicBlock* trueStartBB;
   BasicBlock* falseStartBB;

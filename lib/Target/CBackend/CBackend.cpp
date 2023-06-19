@@ -596,6 +596,8 @@ IfElseRegion::IfElseRegion(BasicBlock *entryBB, CBERegion2 *parentR, PostDominat
     errs() << "creating if-else region for entryBB: " << entryBB->getName() << "\n";
     /*fetch branch related infos*/
     this->brBB = entryBB;
+    this->brInst = dyn_cast<BranchInst>(entryBB->getTerminator());
+    assert(this->brInst && "terminator is not branch inst 600!\n");
     BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator());
     assert(br && "not a branch inst to start if else region\n");
     this->trueStartBB = br->getSuccessor(0);
@@ -1001,7 +1003,7 @@ Instruction *CWriter::getIVIncrement(Loop *L, PHINode* IV) {
   return nullptr;
 }
 
-PHINode *getInductionVariable(Loop *L, ScalarEvolution *SE) {
+PHINode* CWriter::getInductionVariable(Loop *L) {
   //errs() << "trying to get IV for Loop:" << *L << "\n";
   PHINode *InnerIndexVar = L->getCanonicalInductionVariable();
   if (InnerIndexVar){
@@ -1051,7 +1053,7 @@ void CWriter::CreateOmpLoops(Loop *L, Value* ub, Value *lb, Value *incr){
   ompLI->ub = ub;
   ompLI->lb = lb;
   ompLI->incr = incr;
-  ompLI->IV = getInductionVariable(L, SE);
+  ompLI->IV = getInductionVariable(L);
   ompLI->isOmpLoop = true;
   ompLI->isForLoop = true;
   assert(ompLI->IV && "SUSAN: only translate for loop for omp right now\n");
@@ -1259,7 +1261,7 @@ void CWriter::omp_preprossesing(Function &F){
           currLP->isOmpLoop = true;
           currLP->barrier = false;
           countBarrier = 0;
-          currLP->IV = getInductionVariable(ompLoop, SE);
+          currLP->IV = getInductionVariable(ompLoop);
           currLP->IVInc = getIVIncrement(currLP->L, currLP->IV);
           currLP->isForLoop = true;
           currLP->nestlevel = -1;
@@ -1339,7 +1341,7 @@ void CWriter::preprocessLoopProfiles(Function &F){
       continue;
     }
 
-    PHINode *IV = getInductionVariable(L, SE);
+    PHINode *IV = getInductionVariable(L);
     if(!IV){
       errs() << "SUSAN: recording while loop profile:" << *L << "\n";
       LoopProfile* LP = new LoopProfile();
@@ -2372,7 +2374,7 @@ bool CWriter::isInductionVariable(Value* V){
   if(!phi) return false;
 
   Loop* L = LI->getLoopFor(phi->getParent());
-  if(L && getInductionVariable(L, SE) == phi) return true;
+  if(L && getInductionVariable(L) == phi) return true;
 
   return false;
 }
@@ -2384,7 +2386,7 @@ bool CWriter::isExtraInductionVariable(Value* V){
 
   Loop* L = LI->getLoopFor(phi->getParent());
   if(!L) return false;
-  if(L && getInductionVariable(L, SE) == phi) return false;
+  if(L && getInductionVariable(L) == phi) return false;
 
   Type *PhiTy = phi->getType();
   if (!PhiTy->isIntegerTy() && !PhiTy->isFloatingPointTy() &&
@@ -2408,7 +2410,7 @@ bool CWriter::isIVIncrement(Value* V){
   Loop* L = LI->getLoopFor(inst->getParent());
   if(!L) return false;
 
-  PHINode *IV = getInductionVariable(L, SE);
+  PHINode *IV = getInductionVariable(L);
   if(!IV) return false;
   for(unsigned i=0; i<IV->getNumIncomingValues(); ++i){
     BasicBlock *predBB = IV->getIncomingBlock(i);
@@ -2428,7 +2430,7 @@ bool CWriter::isExtraIVIncrement(Value* V){
   Loop* L = LI->getLoopFor(inst->getParent());
   if(!L) return false;
 
-  PHINode *IV = getInductionVariable(L, SE);
+  PHINode *IV = getInductionVariable(L);
   if(!IV || IVMap.find(IV) == IVMap.end()) return false;
   for(auto relatedIV : IVMap[IV]){
     for(unsigned i=0; i<relatedIV->getNumIncomingValues(); ++i){
@@ -6263,17 +6265,77 @@ void LinearRegion::printRegionDAG(){
 void IfElseRegion::printRegionDAG(){
   errs() << "IfElse Region with entry block: " << getEntryBlock()->getName() << "\n";
   errs() << "thenSubRegions : \n";
+
+  //print If branch
+  cw->Out << "  if (";
+  cw->writeOperand(brInst->getCondition(), cw->ContextCasted);
+  cw->Out << ") {\n";
   for(auto R : thenSubRegions)
     R->printRegionDAG();
-  errs() << "elseSubRegions : \n";
-  for(auto R : elseSubRegions)
-    R->printRegionDAG();
+
+  //print else branch
+  if(!elseSubRegions.empty()){
+    errs() << "elseSubRegions : \n";
+    cw->Out << "  } else {\n";
+    for(auto R : elseSubRegions)
+      R->printRegionDAG();
+  }
+
+  cw->Out << "  }\n";
 }
+
 void LoopRegion::printRegionDAG(){
   errs() << "Loop Region with entry block: " << getEntryBlock()->getName() << "\n";
+
+  BasicBlock *header = loop->getHeader();
+  bool negateCondition = false;
+  Instruction *condInst = cw->findCondInst(loop, negateCondition);
+
+  std::set<Instruction*> printedLiveins;
+  std::set<Value*> condRelatedInsts;
+  BasicBlock *condBlock = condInst->getParent();
+  cw->findCondRelatedInsts(condBlock, condRelatedInsts);
+  for(auto condRelatedInst : condRelatedInsts){
+    Instruction *inst = cast<Instruction>(condRelatedInst);
+    errs() << "SUSAN: condrelatedinst:" << *inst << "\n";
+    if(cw->isIVIncrement(inst) ||isa<PHINode>(inst)
+        || isa<BranchInst>(inst) || isa<CmpInst>(inst)
+        || cw->isInlinableInst(*inst) || inst == this->incr)
+      continue;
+    errs() << "SUSAN: printing condRelatedInst: " << *inst << "\n";
+    cw->printInstruction(inst);
+  }
+
+  cw->Out << "for(";
+  cw->Out << "int ";
+  cw->Out << cw->GetValueName(IV, true) << " = ";
+  cw->writeOperand(lb);
+  cw->Out << "; ";
+  cw->Out << cw->GetValueName(condInst->getOperand(0));
+  if(ICmpInst *icmp = dyn_cast<ICmpInst>(condInst)){
+    if(!negateCondition && (icmp->getPredicate() == ICmpInst::ICMP_NE))
+      cw->Out << " < ";
+    else if(negateCondition && (icmp->getPredicate() == ICmpInst::ICMP_EQ))
+      cw->Out << " < ";
+    else cw->printCmpOperator(icmp, negateCondition);
+  }
+
+  if(condInst->getOperand(0) == IV
+      || condInst->getOperand(1) == IV)
+  cw->Out << "(";
+  cw->writeOperandInternal(condInst->getOperand(1));
+  if(condInst->getOperand(0) == IV
+      || condInst->getOperand(1) == IV)
+  cw->Out << " + 1)";
+  cw->Out << "; ";
+  cw->printInstruction(cast<Instruction>(incr), false);
+  cw->Out << "){\n";
+
   for(auto R : CBERegionDAG)
     R->printRegionDAG();
+  cw->Out << "}\n";
 }
+
 void CBERegion2::printRegionDAG(){
   for(auto R : CBERegionDAG){
     R->printRegionDAG();
@@ -8153,6 +8215,21 @@ LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT
     parentRegion = parentR;
     loop = LI->getLoopFor(entryBB);
     latchBB = loop->getLoopLatch();
+    this->IV = cw->getInductionVariable(loop);
+    this->IVInc = cw->getIVIncrement(loop, IV);
+    if(LI->getLoopFor(IV->getIncomingBlock(0)) != loop)
+      this->lb = IV->getIncomingValue(0);
+    else if((LI->getLoopFor(IV->getIncomingBlock(0)) == loop))
+      this->incr = IV->getIncomingValue(0);
+    if(LI->getLoopFor(IV->getIncomingBlock(1)) != loop)
+      this->lb = IV->getIncomingValue(1);
+    else if((LI->getLoopFor(IV->getIncomingBlock(1)) == loop))
+      this->incr = IV->getIncomingValue(1);
+    bool negateCondition = false;
+    Instruction *condInst = cw->findCondInst(loop, negateCondition);
+    this->ub = condInst->getOperand(1);
+    this->nestlevel = -1;
+
     assert(loop && "cannot find loop for a loop region\n");
     nextEntryBB = loop->getUniqueExitBlock();
     errs() << "next entry BB: " << nextEntryBB->getName() << "\n";
@@ -9572,7 +9649,7 @@ bool CWriter::RunAllAnalysis(Function &F){
 
   for(auto LP : LoopProfiles){
     if(LP->isOmpLoop) continue;
-    LP->IV = getInductionVariable(LP->L, SE);
+    LP->IV = getInductionVariable(LP->L);
     LP->IVInc = getIVIncrement(LP->L, LP->IV);
     LP->incr = LP->IVInc;
   }
