@@ -6346,9 +6346,10 @@ void LoopRegion::printRegionDAG(){
     R->printRegionDAG();
 
   //print extra instructions in a latch other than incr and br
-  for(auto &I : *latchBB)
-    if(!isa<PHINode>(&I) && incr != &I && latchBB->getTerminator() != &I)
+  for(auto &I : *latchBB){
+    if(!cw->isSkipableInst(&I) && incr != &I && latchBB->getTerminator() != &I)
       cw->printInstruction(&I);
+  }
 
   cw->Out << "}\n";
 }
