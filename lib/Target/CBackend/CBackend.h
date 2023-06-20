@@ -175,6 +175,7 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   Instruction *getIVIncrement(Loop *L, PHINode* IV);
   void printCmpOperator(ICmpInst *icmp, bool negateCondition = false);
   std::string GetValueName(Value *Operand, bool isDeclaration=false);
+  bool isSkipableInst(Instruction* inst);
 
 
   private:
@@ -225,7 +226,6 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   std::map<Instruction*, Value*> deleteAndReplaceInsts;
   std::map<BranchInst*, int> deadBranches;
   bool omp_declarePrivate;
-  bool isSkipableInst(Instruction* inst);
   void EliminateDeadInsts(Function &F);
   int returnDominated;
   std::set<Instruction*> deadInsts;

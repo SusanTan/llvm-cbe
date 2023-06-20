@@ -6266,9 +6266,19 @@ void IfElseRegion::printRegionDAG(){
   errs() << "IfElse Region with entry block: " << getEntryBlock()->getName() << "\n";
   errs() << "thenSubRegions : \n";
 
+  auto condInst = brInst->getCondition();
+  //print instructions before the branch
+  for(auto &I : *brBB){
+    if(&I == condInst)
+      break;
+    if(cw->isSkipableInst(&I)) continue;
+    cw->printInstruction(&I);
+  }
+
+
   //print If branch
   cw->Out << "  if (";
-  cw->writeOperand(brInst->getCondition(), cw->ContextCasted);
+  cw->writeOperand(condInst, cw->ContextCasted);
   cw->Out << ") {\n";
   for(auto R : thenSubRegions)
     R->printRegionDAG();
@@ -6337,7 +6347,7 @@ void LoopRegion::printRegionDAG(){
 
   //print extra instructions in a latch other than incr and br
   for(auto &I : *latchBB)
-    if(incr != &I && latchBB->getTerminator() != &I)
+    if(!isa<PHINode>(&I) && incr != &I && latchBB->getTerminator() != &I)
       cw->printInstruction(&I);
 
   cw->Out << "}\n";
