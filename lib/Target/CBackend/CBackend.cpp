@@ -6317,10 +6317,14 @@ void LoopRegion::printRegionDAG(){
   }
 
   cw->Out << "for(";
+
+  //initiation
   cw->Out << "int ";
   cw->Out << cw->GetValueName(IV, true) << " = ";
   cw->writeOperand(lb);
   cw->Out << "; ";
+
+  //exit condition
   cw->Out << cw->GetValueName(condInst->getOperand(0));
   if(ICmpInst *icmp = dyn_cast<ICmpInst>(condInst)){
     if(!negateCondition && (icmp->getPredicate() == ICmpInst::ICMP_NE))
@@ -6329,15 +6333,10 @@ void LoopRegion::printRegionDAG(){
       cw->Out << " < ";
     else cw->printCmpOperator(icmp, negateCondition);
   }
-
-  if(condInst->getOperand(0) == IV
-      || condInst->getOperand(1) == IV)
-  cw->Out << "(";
   cw->writeOperandInternal(condInst->getOperand(1));
-  if(condInst->getOperand(0) == IV
-      || condInst->getOperand(1) == IV)
-  cw->Out << " + 1)";
   cw->Out << "; ";
+
+  //increment
   cw->printInstruction(cast<Instruction>(incr), false);
   cw->Out << "){\n";
 
