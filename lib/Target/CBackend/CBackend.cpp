@@ -4335,6 +4335,13 @@ static void PrintEscapedString(const std::string &Str, raw_ostream &Out) {
   PrintEscapedString(Str.c_str(), Str.size(), Out);
 }
 
+// //Hailong Jiang
+// //To tell if the loop is parallelized
+// void isDoAllLoop (){
+  
+//   isOmpLoop = true;
+// }
+
 // generateCompilerSpecificCode - This is where we add conditional compilation
 // directives to cater to specific compilers as need be.
 void CWriter::generateCompilerSpecificCode(raw_ostream &Out,
