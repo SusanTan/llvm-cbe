@@ -6322,7 +6322,17 @@ void LoopRegion::printRegionDAG(){
     errs() << "SUSAN: printing condRelatedInst: " << *inst << "\n";
     cw->printInstruction(inst);
   }
-
+  //Hailong Jiang
+  //To print parallelized loop
+  errs() << "Hailong: To print parallelized loop \n";
+  for (BasicBlock *BB : loop->getBlocks()){
+          Instruction *term = BB->getTerminator();
+          BranchInst *br = dyn_cast<BranchInst>(term);
+          if(br->getMetadata("splendid.parallelized.loop")){
+            cw->Out << "#pragma omp parallel for \n";
+            errs() << "Hailong: print '#pragma omp parallel for' ";
+          }
+    }
   cw->Out << "for(";
 
   //initiation
@@ -7396,6 +7406,7 @@ void CWriter::printLoopNew(Loop *L) {
   if(LP->isForLoop){
 
     std::set<Instruction*> printedLiveins;
+
     if(LP->isOmpLoop){
       Out << "#pragma omp for ";
       if(LP->schedtype == 33 || LP->schedtype == 34){
@@ -9108,12 +9119,13 @@ void CWriter::visitCastInst(CastInst &I) {
 
 void CWriter::visitSelectInst(SelectInst &I) {
   CurInstr = &I;
-
+  Out << "(";
   writeOperand(I.getCondition(), ContextCasted);
   Out << " ? ";
   writeOperand(I.getTrueValue(), ContextCasted);
   Out << " : ";
   writeOperand(I.getFalseValue(), ContextCasted);
+  Out << ")";
   //Out << "llvm_select_";
   //printTypeString(Out, I.getType(), false);
   //Out << "(";
