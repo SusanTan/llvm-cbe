@@ -4335,6 +4335,13 @@ static void PrintEscapedString(const std::string &Str, raw_ostream &Out) {
   PrintEscapedString(Str.c_str(), Str.size(), Out);
 }
 
+// //Hailong Jiang
+// //To tell if the loop is parallelized
+// void isDoAllLoop (){
+
+//   isOmpLoop = true;
+// }
+
 // generateCompilerSpecificCode - This is where we add conditional compilation
 // directives to cater to specific compilers as need be.
 void CWriter::generateCompilerSpecificCode(raw_ostream &Out,
@@ -6315,7 +6322,17 @@ void LoopRegion::printRegionDAG(){
     errs() << "SUSAN: printing condRelatedInst: " << *inst << "\n";
     cw->printInstruction(inst);
   }
-
+  //Hailong Jiang
+  //To print parallelized loop
+  errs() << "Hailong: To print parallelized loop \n";
+  for (BasicBlock *BB : loop->getBlocks()){
+          Instruction *term = BB->getTerminator();
+          BranchInst *br = dyn_cast<BranchInst>(term);
+          if(br->getMetadata("splendid.parallelized.loop")){
+            cw->Out << "#pragma omp parallel for \n";
+            errs() << "Hailong: print '#pragma omp parallel for' ";
+          }
+    }
   cw->Out << "for(";
 
   //initiation
@@ -7327,7 +7344,6 @@ void CWriter::OMP_RecordLiveIns(LoopProfile *LP){
    errs() << "SUSAN: finding live-in for ub" << *LP->ub << "\n";
    FindLiveInsFor(L, LP->ub);
 }
-
 
 void CWriter::printBasicBlock(BasicBlock *BB, std::set<Value*> skipInsts) {
 
@@ -8613,12 +8629,13 @@ void CWriter::visitCastInst(CastInst &I) {
 
 void CWriter::visitSelectInst(SelectInst &I) {
   CurInstr = &I;
-
+  Out << "(";
   writeOperand(I.getCondition(), ContextCasted);
   Out << " ? ";
   writeOperand(I.getTrueValue(), ContextCasted);
   Out << " : ";
   writeOperand(I.getFalseValue(), ContextCasted);
+  Out << ")";
   //Out << "llvm_select_";
   //printTypeString(Out, I.getType(), false);
   //Out << "(";
