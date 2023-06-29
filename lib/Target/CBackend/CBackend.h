@@ -533,8 +533,6 @@ private:
   void printFloatingPointConstants(const Constant *C);
 
   void printFunction(Function &F, bool inlineF=false);
-  void printLoop(Loop *L);
-  void printLoopNew(Loop *L);
 
   void printCast(unsigned opcode, Type *SrcTy, Type *DstTy);
   void printConstant(Constant *CPV, enum OperandContext Context);
