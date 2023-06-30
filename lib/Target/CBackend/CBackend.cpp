@@ -6336,7 +6336,8 @@ void LoopRegion::printRegionDAG(){
   cw->Out << "for(";
 
   //initiation
-  cw->Out << "int ";
+  cw->printTypeName(cw->Out, IV->getType(), true);
+  cw->Out << " ";
   cw->Out << cw->GetValueName(IV, true) << " = ";
   cw->writeOperand(lb);
   cw->Out << "; ";
@@ -6394,6 +6395,11 @@ bool CWriter::canDeclareLocalLate(Instruction &I) {
 }
 
 void CWriter::findSignedInsts(Instruction* inst, Instruction* signedInst){
+    if(CallInst* call = dyn_cast<CallInst>(inst)){
+      if(call->getType()->isIntegerTy())
+        signedInsts.insert(signedInst);
+    }
+
     for (User *U : inst->users()) {
       if (CmpInst *cmp = dyn_cast<CmpInst>(U)) {
         switch(cmp->getPredicate()){
@@ -6419,8 +6425,6 @@ void CWriter::findSignedInsts(Instruction* inst, Instruction* signedInst){
          signedInsts.insert(signedInst);
       }
     }
-
-
 }
 
 ///void CWriter::insertDeclaredInsts(Instruction* I){

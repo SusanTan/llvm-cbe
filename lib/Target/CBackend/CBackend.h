@@ -176,6 +176,11 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   void printCmpOperator(ICmpInst *icmp, bool negateCondition = false);
   std::string GetValueName(Value *Operand, bool isDeclaration=false);
   bool isSkipableInst(Instruction* inst);
+  raw_ostream &printTypeString(raw_ostream &Out, Type *Ty, bool isSigned);
+  raw_ostream &printTypeName(raw_ostream &Out, Type *Ty, bool isSigned = false,
+                             std::pair<AttributeList, CallingConv::ID> PAL =
+                                 std::make_pair(AttributeList(),
+                                                CallingConv::C));
 
 
   private:
@@ -416,16 +421,11 @@ private:
   raw_ostream &printArrayDeclaration(raw_ostream &Out, ArrayType *Ty);
   raw_ostream &printVectorDeclaration(raw_ostream &Out, VectorType *Ty);
 
-  raw_ostream &printTypeName(raw_ostream &Out, Type *Ty, bool isSigned = false,
-                             std::pair<AttributeList, CallingConv::ID> PAL =
-                                 std::make_pair(AttributeList(),
-                                                CallingConv::C));
   raw_ostream &printTypeNameForAddressableValue(raw_ostream &Out, Type *Ty,
                                                 bool isSigned = false);
   raw_ostream &printTypeNameUnaligned(raw_ostream &Out, Type *Ty,
                                       bool isSigned = false);
   raw_ostream &printSimpleType(raw_ostream &Out, Type *Ty, bool isSigned);
-  raw_ostream &printTypeString(raw_ostream &Out, Type *Ty, bool isSigned);
 
   std::string getStructName(StructType *ST);
   std::string getFunctionName(FunctionType *FT,
