@@ -15,6 +15,7 @@ set(LLVM_LINK_COMPONENTS
 
 add_llvm_target(CBackendCodeGen
   CBackend.cpp
+  CBERegion.cpp
   CTargetMachine.cpp
   TopologicalSorter.cpp
   )
