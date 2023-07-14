@@ -821,7 +821,7 @@ std::set<BasicBlock*> CWriter::findRegionEntriesOfBB (BasicBlock* BB){
 
 void CWriter::determineControlFlowTranslationMethod(Function &F){
   NATURAL_CONTROL_FLOW = true;
-  markBBwithNumOfVisits(F);
+  //markBBwithNumOfVisits(F);
 
   BasicBlock *returnBB = nullptr;
   for(auto &BB : F)

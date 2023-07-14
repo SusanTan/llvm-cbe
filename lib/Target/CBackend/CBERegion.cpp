@@ -44,7 +44,7 @@ LinearRegion::LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *L
     BBs.push_back(nextBB);
     nextBB = nextBB->getSingleSuccessor();
     nextEntryBB = nextBB;
-    if(nextBB->getSingleSuccessor() == nullptr
+    if(!nextBB || nextBB->getSingleSuccessor() == nullptr
         || (l && l->getLoopLatch() == nextBB)) break;
   }
 }
@@ -112,8 +112,9 @@ IfElseRegion::IfElseRegion(BasicBlock *entryBB, CBERegion2 *parentR, PostDominat
     }
     else{
       errs() << "SUSAN: marking both branches\n";
-      nextEntryBB = createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
-      nextEntryBB = createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
+      auto nextEntryBB1 = createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
+      auto nextEntryBB2 = createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
+      nextEntryBB = nextEntryBB1 ? nextEntryBB1 : nextEntryBB2;
     }
 
     if(parentR && parentR->isaLoopRegion())
@@ -132,6 +133,7 @@ BasicBlock* IfElseRegion::createSubIfElseRegions(BasicBlock* start, BasicBlock *
       CBERegion2 *subR = createSubRegions(this, currBB);
       if(!isElseBranch) thenSubRegions.push_back(subR);
       else elseSubRegions.push_back(subR);
+      if(isa<UnreachableInst>(currBB->getTerminator())) break;
       currBB = subR->getNextEntryBB();
       errs() << "SUSAN: currbb 562: " << currBB->getName() << "\n";
     }
@@ -154,8 +156,10 @@ void CBERegion2::createCBERegionDAG(BasicBlock* entryBB, CBERegion2 *parentR, Ba
   if(entryBB == endBB) return;
 
   BasicBlock *nextRegionEntryBB = entryR->getNextEntryBB();
-  errs() << "SUSAN: nextRegionEntryBB " << nextRegionEntryBB->getName() << "\n";
-  createCBERegionDAG(nextRegionEntryBB, parentR, endBB);
+  if(nextRegionEntryBB){
+    errs() << "SUSAN: nextRegionEntryBB " << nextRegionEntryBB->getName() << "\n";
+    createCBERegionDAG(nextRegionEntryBB, parentR, endBB);
+  }
 }
 
 void LinearRegion::print(){
