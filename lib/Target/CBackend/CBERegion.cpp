@@ -102,14 +102,16 @@ IfElseRegion::IfElseRegion(BasicBlock *entryBB, CBERegion2 *parentR, PostDominat
       if(auto lr = getParentLoopRegion())
         for(auto BB : falseBBs)
           lr->removeBBToVisit(BB);
-      nextEntryBB = createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
+      createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
+      nextEntryBB = falseStartBB;
     }
     else if(falseBrOnly && returnDominated == -1){
       errs() << "SUSAN: marking only false branch\n";
       if(auto lr = getParentLoopRegion())
         for(auto BB : trueBBs)
           lr->removeBBToVisit(BB);
-      nextEntryBB = createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
+      createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
+      nextEntryBB = trueStartBB;
     }
     else{
       errs() << "SUSAN: marking both branches\n";
@@ -146,8 +148,10 @@ void LoopRegion::createCBERegionDAG(BasicBlock* entryBB){
   while(!this->hasNoRemainingBBs()){
     CBERegion2 *entryR = createSubRegions(this, nextRegionEntryBB);
     LoopBodyRegionDAG.push_back(entryR);
-    nextRegionEntryBB = entryR->getNextEntryBB();
-    errs() << "SUSAN: nextRegionEntryBB " << nextRegionEntryBB->getName() << "\n";
+    if(nextRegionEntryBB){
+      nextRegionEntryBB = entryR->getNextEntryBB();
+      errs() << "SUSAN: nextRegionEntryBB " << nextRegionEntryBB->getName() << "\n";
+    }
   }
 }
 
