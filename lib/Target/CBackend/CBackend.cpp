@@ -7079,13 +7079,6 @@ void CWriter::OMP_RecordLiveIns(LoopProfile *LP){
 void CWriter::printBasicBlock(BasicBlock *BB, std::set<Value*> skipInsts) {
 
 if( NATURAL_CONTROL_FLOW ){
-  /*
-   * Naturalness: don't need to print labels
-   */
-  if(times2bePrinted[BB]<=0){
-    errs() << "SUSAN: BB already printed (could be a bug)" << *BB << "\n";
-    return;
-  }
   // Don't print the label for the basic block if there are no uses, or if
   // the only terminator use is the predecessor basic block's terminator.
   // We have to scan the use list because PHI nodes use basic blocks too but

@@ -29,7 +29,8 @@ using namespace llvm;
 LinearRegion::LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *LI, PostDominatorTree *PDT, DominatorTree *DT, CWriter *cwriter)
 : CBERegion2{ LI, PDT, DT, parentR, entryBB, cwriter}{
   /*for return block*/
-  if(isa<ReturnInst>(entryBB->getTerminator())){
+  Instruction *term = entryBB->getTerminator();
+  if(isa<ReturnInst>(term) || isa<UnreachableInst>(term)){
     BBs.push_back(entryBB);
     nextEntryBB = nullptr;
     return;
