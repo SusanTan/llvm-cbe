@@ -1771,6 +1771,7 @@ bool CWriter::runOnModule(Module &M) {
     Function *F = &*FI;
     if(F->isIntrinsic()) continue;
     if(F->isDeclaration()) continue;
+    if(F->getName() == "xmalloc") continue;
 
     IS_OPENMP_FUNCTION = false;
     for(auto [call, utask] : ompFuncs){
@@ -3358,6 +3359,9 @@ std::string CWriter::GetValueName(Value *Operand, bool isDeclaration) {
     cnt_totalVariables++;
   }
 
+  if(Operand->getName() == "xmalloc")
+    return "malloc";
+
   if(!Operand) return "";
   if(IV2Name.find(Operand) != IV2Name.end()){
     if(isDeclaration){
@@ -4570,6 +4574,10 @@ void CWriter::generateHeader(Module &M) {
     if((&*I)->getName().contains("printf")) continue;
     if((&*I)->getName().contains("fputc")) continue;
     if((&*I)->getName().contains("malloc")) continue;
+    if((&*I)->getName().contains("posix_memalign")) continue;
+    if((&*I)->getName().contains("fwrite")) continue;
+    if((&*I)->getName().contains("exit")) continue;
+    //if((&*I)->getName().contains("xmalloc")) continue;
     // Don't print declarations for intrinsic functions.
     // Store the used intrinsics, which need to be explicitly defined.
     if (I->isIntrinsic()) {
@@ -4623,8 +4631,8 @@ void CWriter::generateHeader(Module &M) {
     else if (I->hasDLLExportStorageClass())
       Out << "__declspec(dllexport) ";
 
-    if (I->hasLocalLinkage())
-      Out << "static ";
+    //if (I->hasLocalLinkage())
+    //  Out << "static ";
     if (I->hasExternalWeakLinkage())
       Out << "extern ";
 
@@ -4754,8 +4762,8 @@ void CWriter::generateHeader(Module &M) {
          ++I) {
       cwriter_assert(!I->isDeclaration() &&
                      !isEmptyType(I->getType()->getPointerElementType()));
-      if (I->hasLocalLinkage())
-        continue; // Internal Global
+      //if (I->hasLocalLinkage())
+      //  continue; // Internal Global
 
       if (I->hasDLLImportStorageClass())
         Out << "__declspec(dllimport) ";
@@ -5503,8 +5511,8 @@ void CWriter::declareOneGlobalVariable(GlobalVariable *I) {
   else if (I->hasDLLExportStorageClass())
     Out << "__declspec(dllexport) ";
 
-  if (I->hasLocalLinkage())
-    Out << "static ";
+  //if (I->hasLocalLinkage())
+  //  Out << "static ";
 
   // Thread Local Storage
   if (I->isThreadLocal())
@@ -6300,8 +6308,8 @@ void CWriter::printFunction(Function &F, bool inlineF) {
       Out << "__declspec(dllimport) ";
     if (F.hasDLLExportStorageClass())
       Out << "__declspec(dllexport) ";
-    if (F.hasLocalLinkage())
-      Out << "static ";
+    //if (F.hasLocalLinkage())
+    //  Out << "static ";
   }
 
   std::string Name = GetValueName(&F);
