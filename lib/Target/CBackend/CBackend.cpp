@@ -9881,6 +9881,10 @@ bool CWriter::printGEPExpressionStruct(Value *Ptr, gep_type_iterator I,
       writeOperandInternal(Ptr, ContextNormal, false);
       if(!isNegative(FirstOp)){
         Out << '+';
+        if(ArrayType *arrTy = dyn_cast<ArrayType>(IntoT)){
+          auto size = arrTy->getNumElements();
+          Out << size << "*";
+        }
         writeOperand(FirstOp);
         Out << ')';
       }
