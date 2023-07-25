@@ -849,7 +849,7 @@ PHINode* CWriter::getInductionVariable(Loop *L) {
   //errs() << "trying to get IV for Loop:" << *L << "\n";
   PHINode *InnerIndexVar = L->getCanonicalInductionVariable();
   if (InnerIndexVar){
-    errs() << "SUSAN: found IV 784\n";
+    errs() << "SUSAN: found IV 784" << *InnerIndexVar << "\n";
     return InnerIndexVar;
   }
   if (L->getLoopLatch() == nullptr || L->getLoopPredecessor() == nullptr){
@@ -1681,28 +1681,30 @@ void CWriter::preprocessInsts2AddParenthesis(Function &F){
 }
 
 void CWriter::buildIVNames(){
-  for(auto [callInst, utask] : ompFuncs){
-    auto L = LI->getLoopFor(callInst->getParent());
-    if(!L) continue;
-    errs() << "SUSAN: found loop over callInst " << *callInst << "\n";
-    errs() << "depth " << L->getLoopDepth() << "\n";
-    errs() << "SUSAN: utask: " << *utask << "\n";
-    FunctionTopLoopLevels[utask] = L->getLoopDepth();
-  }
+  //for(auto [callInst, utask] : ompFuncs){
+  //  auto L = LI->getLoopFor(callInst->getParent());
+  //  if(!L) continue;
+  //  errs() << "SUSAN: found loop over callInst " << *callInst << "\n";
+  //  errs() << "depth " << L->getLoopDepth() << "\n";
+  //  errs() << "SUSAN: utask: " << *utask << "\n";
+  //  FunctionTopLoopLevels[utask] = L->getLoopDepth();
+  //}
 
   for(auto LP : LoopProfiles){
+    errs() << "LP->LV 1694: " << *(LP->IV) << "\n";
+    errs() << "LP->L 1694: " << *(LP->L) << "\n";
     char nestLevel = LP->L->getLoopDepth() - 1;
-    auto F = LP->L->getHeader()->getParent();
-    errs() << "SUSAN: function 1685: " << *F << "\n";
-    if(FunctionTopLoopLevels.find(F) != FunctionTopLoopLevels.end()){
-      nestLevel += FunctionTopLoopLevels[F];
-      errs() << "SUSAN: adding loop level to loop in Function: " << *F << "\n";
-    }
 
+    //auto F = LP->L->getHeader()->getParent();
+    //errs() << "SUSAN: function 1685: " << *F << "\n";
+    //if(FunctionTopLoopLevels.find(F) != FunctionTopLoopLevels.end()){
+    //  nestLevel += FunctionTopLoopLevels[F];
+    //  errs() << "SUSAN: adding loop level to loop in Function: " << *F << "\n";
+    //}
     char name[2] = {'i'+nestLevel, '\0'};
+    errs() << "nestlevel: " << name << "\n";
     IV2Name[LP->IV] = name;
     IV2Name[LP->IVInc] = name;
-
   }
 }
 
@@ -3364,6 +3366,8 @@ std::string CWriter::GetValueName(Value *Operand, bool isDeclaration) {
 
   if(!Operand) return "";
   if(IV2Name.find(Operand) != IV2Name.end()){
+    errs() << "SUSAN: found in IV2Name map " << *Operand << "\n";
+    errs() << "name:  " << IV2Name[Operand] << "\n";
     if(isDeclaration){
       errs() << "SUSAN: reconstructed variable counter increment for iv:" << IV2Name[Operand] << "\n";
       cnt_reconstructedVariables++;
@@ -7793,7 +7797,6 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
   using namespace PatternMatch;
 
   CurInstr = &I;
-
   // binary instructions, shift instructions, setCond instructions.
   cwriter_assert(!I.getType()->isPointerTy());
 
@@ -7846,6 +7849,15 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
         if(ConstantInt* opnd0 = dyn_cast<ConstantInt>(I.getOperand(0))){
           if(ConstantInt* opnd1 = dyn_cast<ConstantInt>(I.getOperand(1)))
             Out << (opnd0->getSExtValue() + opnd1->getSExtValue());
+          else{
+            if(addParenthesis.find(&I) != addParenthesis.end())
+              Out << "(";
+            writeOperand(I.getOperand(0), ContextCasted);
+            Out << " + ";
+            writeOperand(I.getOperand(1), ContextCasted);
+            if(addParenthesis.find(&I) != addParenthesis.end())
+              Out << ")";
+          }
         } else {
           if(addParenthesis.find(&I) != addParenthesis.end())
             Out << "(";
@@ -7898,6 +7910,15 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
         if(ConstantInt* opnd0 = dyn_cast<ConstantInt>(I.getOperand(0))){
           if(ConstantInt* opnd1 = dyn_cast<ConstantInt>(I.getOperand(1)))
             Out << (opnd0->getSExtValue() - opnd1->getSExtValue());
+          else{
+            if(addParenthesis.find(&I) != addParenthesis.end())
+              Out << "(";
+            writeOperand(I.getOperand(0), ContextCasted);
+            Out << " - ";
+            writeOperand(I.getOperand(1), ContextCasted);
+            if(addParenthesis.find(&I) != addParenthesis.end())
+              Out << ")";
+          }
         } else {
           Out << "(";
           writeOperand(I.getOperand(0), ContextCasted);
@@ -8042,6 +8063,7 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
       Out << "(";
     writeOperandWithCast(I.getOperand(0), I.getOpcode());
 
+    errs() << "SUSAN: am I here 8049?\n";
     switch (I.getOpcode()) {
     case Instruction::Add:
     case Instruction::FAdd:
