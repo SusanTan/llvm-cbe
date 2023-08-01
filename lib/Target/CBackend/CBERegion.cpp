@@ -255,15 +255,21 @@ void LoopRegion::printRegionDAG(){
   }
   //Hailong Jiang
   //To print parallelized loop
-  errs() << "Hailong: To print parallelized loop \n";
-  for (BasicBlock *BB : loop->getBlocks()){
-          Instruction *term = BB->getTerminator();
-          BranchInst *br = dyn_cast<BranchInst>(term);
-          if(br->getMetadata("splendid.parallelized.loop")){
-            cw->Out << "#pragma omp parallel for \n";
-            errs() << "Hailong: print '#pragma omp parallel for' ";
-          }
-    }
+  //errs() << "Hailong: To print parallelized loop \n";
+  //for (BasicBlock *BB : loop->getBlocks()){
+  //        Instruction *term = BB->getTerminator();
+  //        BranchInst *br = dyn_cast<BranchInst>(term);
+  //        if(br->getMetadata("splendid.parallelized.loop")){
+  //          cw->Out << "#pragma omp parallel for \n";
+  //          errs() << "Hailong: print '#pragma omp parallel for' ";
+  //        }
+  //  }
+
+  auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
+  if(headerBr->getMetadata("splendid.parallelized.loop")){
+    cw->Out << "#pragma omp parallel for \n";
+  }
+
   cw->Out << "for(";
 
   //initiation

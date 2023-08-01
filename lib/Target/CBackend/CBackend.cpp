@@ -6815,6 +6815,7 @@ BasicBlock* findDoWhileExitingLatchBlock(Loop *L){
 Instruction* CWriter::findCondInst(Loop *L, bool &negateCondition){
   auto header = L->getHeader();
   Instruction* term = header->getTerminator();
+  errs() << "term 6818: " << *term << "\n";
   BranchInst* brInst = dyn_cast<BranchInst>(term);
   Value *cond = brInst->getCondition();
   if(isa<CmpInst>(cond) || isa<UnaryInstruction>(cond) || isa<BinaryOperator>(cond) || isa<CallInst>(cond)){
