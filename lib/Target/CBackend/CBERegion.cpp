@@ -267,10 +267,18 @@ void LoopRegion::printRegionDAG(){
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
   if(headerBr->getMetadata("splendid.parallelized.loop")){
-    cw->Out << "#pragma omp parallel for \n";
+    cw->Out << "#pragma omp parallel for ";
   }
 
-  cw->Out << "for(";
+  for(auto &I : *header){
+    if(I.getMetadata("splendid.reduce.add")){
+      cw->Out << "reduction(+:";
+      cw->writeOperand(&I);
+      cw->Out << ")";
+    }
+  }
+
+  cw->Out << "\nfor(";
 
   //initiation
   cw->printTypeName(cw->Out, IV->getType(), true);
