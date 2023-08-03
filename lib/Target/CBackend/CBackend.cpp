@@ -9896,6 +9896,8 @@ bool CWriter::printGEPExpressionStruct(Value *Ptr, gep_type_iterator I,
 
   bool currGEPisPointer = !(isa<GetElementPtrInst>(Ptr) || isa<AllocaInst>(Ptr) || isa<GlobalVariable>(Ptr));
   //first index
+  bool flattened3D = false;
+  int  nextSize = 0;
   if(isa<StructType>(IntoT) || isa<ArrayType>(IntoT)){
     //if it's a struct or array, whether it's pointer or not, first index is offset and zero can be eliminated
     errs() <<  "SUSAN: first index is struct or array type\n";
@@ -9907,9 +9909,15 @@ bool CWriter::printGEPExpressionStruct(Value *Ptr, gep_type_iterator I,
         if(ArrayType *arrTy = dyn_cast<ArrayType>(IntoT)){
           auto size = arrTy->getNumElements();
           Out << size << "*";
+          if(ArrayType *elemArrTy = dyn_cast<ArrayType>(arrTy->getElementType())){
+            nextSize = elemArrTy->getNumElements();
+            Out << size << "*";
+            flattened3D = true;
+          }
         }
         writeOperand(FirstOp);
-        Out << ')';
+        if(!flattened3D)
+          Out << ')';
       }
       else{
         errs() << "SUSAN: found negative int" << *FirstOp << "\n";
@@ -9987,20 +9995,21 @@ bool CWriter::printGEPExpressionStruct(Value *Ptr, gep_type_iterator I,
 
   Type *prevType = IntoT;
   for (; I != E; ++I) {
-    //IntoT = I.getIndexedType();
     Value *Opnd = I.getOperand();
     if(isa<ArrayType>(prevType)){
       if(accessMemory){
-        //if(currValue2DerefCnt.second){
-          currValue2DerefCnt.second--;
-          Out << '[';
+        if(flattened3D){
+          Out << "+" << nextSize << "*";
+          writeOperand(Opnd);
+          Out << ')';
+          flattened3D=false;
+        }
+        else{
+          Out << "[";
           writeOperand(Opnd);
           Out << ']';
           isPointer = false;
-        //}
-        //else{
-        //  assert( 0 && "SUSAN: dereferencing more than expected?\n");
-        //}
+        }
       } else if(!isConstantNull(Opnd)) {
         if(currValue2DerefCnt.second){
           currValue2DerefCnt.second--;
