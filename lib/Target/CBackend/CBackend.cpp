@@ -190,6 +190,18 @@ bool CWriter::isInlinableInst(Instruction &I) const {
       if(F->getName() == "exp")
         return true;
 
+  //if it's a store that is over written by another store in the same basic block, then it's inlinable
+  if(StoreInst *store = dyn_cast<StoreInst>(&I)){
+    Value *dest = store->getPointerOperand();
+    for(auto it = store->getIterator(); it != store->getParent()->end(); ++it){
+      if(&*it == store)
+        continue;
+      if(isa<StoreInst>(&*it) && dest == (&*it)->getOperand(1))
+          return true;
+    }
+  }
+
+
   if (isa<LoadInst>(I) || isa<CmpInst>(I) || isa<GetElementPtrInst>(I) || isa<CastInst>(I))
     return true;
 
@@ -1417,6 +1429,7 @@ void CWriter::preprocessSkippableInsts(Function &F){
 void CWriter::EliminateDeadInsts(Function &F){
   for (inst_iterator I = inst_begin(&F), E = inst_end(&F); I != E; ++I) {
     Instruction *inst = &*I;
+
     if(CallInst *CI = dyn_cast<CallInst>(inst)){
       errs() << "SUSAN: CI at 1400: " << *CI << "\n";
       if(Function *F = CI->getCalledFunction()){
@@ -6756,10 +6769,8 @@ void CWriter::printCmpOperator(ICmpInst *icmp, bool negateCondition){
 }
 
 void CWriter::printInstruction(Instruction *I, bool printSemiColon){
-    errs() << "SUSAN: printing instruction " << *I << " at 6003\n";
     if(omp_SkipVals.find(I) != omp_SkipVals.end()) return;
     if(deadInsts.find(I) != deadInsts.end()) return;
-    errs() << "SUSAN: did omp_SkipVals skips my inst?\n";
     Out << "  ";
     if (!isEmptyType(I->getType()) && !isInlineAsm(*I)) {
       if (canDeclareLocalLate(*I)) {
