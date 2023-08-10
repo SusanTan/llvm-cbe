@@ -118,6 +118,7 @@ IfElseRegion::IfElseRegion(BasicBlock *entryBB, CBERegion2 *parentR, PostDominat
       auto nextEntryBB1 = createSubIfElseRegions(trueStartBB, brBB, falseStartBB, false);
       auto nextEntryBB2 = createSubIfElseRegions(falseStartBB, brBB, trueStartBB, true);
       nextEntryBB = nextEntryBB1 ? nextEntryBB1 : nextEntryBB2;
+      errs() << "CBERegion: nextEntryBB 121: " << nextEntryBB->getName() << "\n";
     }
 
     if(parentR && parentR->isaLoopRegion())
@@ -146,11 +147,13 @@ BasicBlock* IfElseRegion::createSubIfElseRegions(BasicBlock* start, BasicBlock *
 void LoopRegion::createCBERegionDAG(BasicBlock* entryBB){
   BasicBlock *nextRegionEntryBB = entryBB;
   while(!this->hasNoRemainingBBs()){
+    errs() << "CBERegion: here? 149\n";
     CBERegion2 *entryR = createSubRegions(this, nextRegionEntryBB);
     LoopBodyRegionDAG.push_back(entryR);
     if(nextRegionEntryBB){
       nextRegionEntryBB = entryR->getNextEntryBB();
       errs() << "SUSAN: nextRegionEntryBB " << nextRegionEntryBB->getName() << "\n";
+      errs() << "for region: " << *(this->loop) << "\n";
     }
   }
 }
@@ -308,7 +311,9 @@ void LoopRegion::printRegionDAG(){
     R->printRegionDAG();
 
   //print extra instructions in a latch other than incr and br
+  errs() << "CBERegion: printing latchBB " << latchBB->getName() << "\n";
   for(auto &I : *latchBB){
+    errs() << "CBERegion: I 316: " << I << "\n";
     if(!cw->isSkipableInst(&I) && incr != &I && latchBB->getTerminator() != &I)
       cw->printInstruction(&I);
   }
@@ -323,25 +328,9 @@ void CBERegion2::printRegionDAG(){
 }
 
 void IfElseRegion::removeIfElseBlockFromLR(LoopRegion* lr, BasicBlock *brBB){
-  std::queue<BasicBlock*> toVisit;
-  std::set<BasicBlock*> visited;
-  toVisit.push(brBB);
-  visited.insert(brBB);
-  while(!toVisit.empty()){
-    BasicBlock* currBB = toVisit.front();
-    toVisit.pop();
-
-    lr->removeBBToVisit(currBB);
-    if(brBB != currBB && PDT->dominates(currBB, brBB)) break;
-
-    for (auto succ = succ_begin(currBB); succ != succ_end(currBB); ++succ){
-      BasicBlock *succBB = *succ;
-      if(visited.find(succBB) == visited.end()){
-        visited.insert(succBB);
-        toVisit.push(succBB);
-      }
-    }
-  }
+  for(auto &BB : *(brBB->getParent()))
+    if(DT->dominates(brBB, &BB) && PDT->dominates(pdBB, &BB) && pdBB != &BB)
+      lr->removeBBToVisit(&BB);
 }
 
 LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT, DominatorTree *DT, CBERegion2 *parentR, CWriter *cwriter)
@@ -352,6 +341,7 @@ LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT
     parentRegion = parentR;
     loop = LI->getLoopFor(entryBB);
     latchBB = loop->getLoopLatch();
+    errs() << "SUSAN: loop at 355 " << *loop << "\n";
     this->IV = cw->getInductionVariable(loop);
     this->IVInc = cw->getIVIncrement(loop, IV);
     if(LI->getLoopFor(IV->getIncomingBlock(0)) != loop)
@@ -389,8 +379,33 @@ LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT
     if(succ0 == nextEntryBB) startBB = succ1;
     else if(succ1 == nextEntryBB) startBB = succ0;
     else assert(0 && "exit block is not from header!\n");
+    errs() << "CBERegion: startBB 393: " << *startBB << "\n";
     createCBERegionDAG(startBB);
 }
 
+CBERegion2* CBERegion2::createSubRegions(CBERegion2 *parentR, BasicBlock* entryBB){
+  CBERegion2 *R = nullptr;
+  switch (whichRegion(entryBB, LI)){
+    case 0:
+    {
+      errs() << "SUSAN: entry block is a linear region! " << entryBB->getName() << "\n";
+      R = new LinearRegion(entryBB, parentR, LI, PDT, DT, this->cw);
+      break;
+    }
+    case 1:
+    {
+      errs() << "SUSAN: entry block is an if-else region! " << entryBB->getName() << "\n";
+      R = new IfElseRegion(entryBB, parentR, PDT, DT, LI, this->cw);
+      break;
+    }
+    case 2:
+    {
+      errs() << "SUSAN: entry block is a loop region! " << entryBB->getName() << "\n";
+      R = new LoopRegion(entryBB, LI, PDT, DT, parentR, this->cw);
+      break;
+    }
+  }
+  return R;
+}
 
 }

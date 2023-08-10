@@ -184,12 +184,6 @@ bool CWriter::isInlinableInst(Instruction &I) const {
   // expressions.  GCC generates horrible code if we don't.
   //
 
-  //FIXME: patch to alias example
-  if(CallInst *callInst = dyn_cast<CallInst>(&I))
-    if(Function *F = callInst->getCalledFunction())
-      if(F->getName() == "exp")
-        return true;
-
   //if it's a store that is over written by another store in the same basic block, then it's inlinable
   if(StoreInst *store = dyn_cast<StoreInst>(&I)){
     Value *dest = store->getPointerOperand();
@@ -201,12 +195,12 @@ bool CWriter::isInlinableInst(Instruction &I) const {
     }
   }
 
-
   if (isa<LoadInst>(I) || isa<CmpInst>(I) || isa<GetElementPtrInst>(I) || isa<CastInst>(I))
     return true;
 
-  if(isa<BinaryOperator>(&I) && notInlinableBinOps.find(&I) == notInlinableBinOps.end())
-    return true;
+//
+//  if(isa<BinaryOperator>(&I) && notInlinableBinOps.find(&I) == notInlinableBinOps.end())
+//    return true;
 
   //exit condition can be inlined
   if(isa<CallInst>(I) && loopCondCalls.find(dyn_cast<CallInst>(&I)) != loopCondCalls.end())
@@ -539,30 +533,7 @@ int CBERegion2::whichRegion(BasicBlock *entryBB, LoopInfo *LI){
   return 0;
 }
 
-CBERegion2* CBERegion2::createSubRegions(CBERegion2 *parentR, BasicBlock* entryBB){
-  CBERegion2 *R = nullptr;
-  switch (whichRegion(entryBB, LI)){
-    case 0:
-    {
-      errs() << "SUSAN: entry block is a linear region! " << entryBB->getName() << "\n";
-      R = new LinearRegion(entryBB, parentR, LI, PDT, DT, this->cw);
-      break;
-    }
-    case 1:
-    {
-      errs() << "SUSAN: entry block is an if-else region! " << entryBB->getName() << "\n";
-      R = new IfElseRegion(entryBB, parentR, PDT, DT, LI, this->cw);
-      break;
-    }
-    case 2:
-    {
-      errs() << "SUSAN: entry block is a loop region! " << entryBB->getName() << "\n";
-      R = new LoopRegion(entryBB, LI, PDT, DT, parentR, this->cw);
-      break;
-    }
-  }
-  return R;
-}
+
 
 
 void CWriter::markBBwithNumOfVisits(Function &F){
@@ -1195,6 +1166,7 @@ void CWriter::preprocessLoopProfiles(Function &F){
       continue;
     }
 
+    errs() << "CBackend: here? 1175\n";
     PHINode *IV = getInductionVariable(L);
     if(!IV){
       errs() << "SUSAN: recording while loop profile:" << *L << "\n";
@@ -3614,6 +3586,7 @@ void CWriter::writeOperandInternal(Value *Operand,
 }
 
 void CWriter::writeOperand(Value *Operand, enum OperandContext Context, bool startExpression) {
+  errs() << "CBackend: writeOperand 3595: " << *Operand << "\n";
   if(LoadInst* ld = dyn_cast<LoadInst>(Operand))
     if(ld->getPointerOperand()->getName() == "stderr"){
       Out << "stderr";
@@ -3691,6 +3664,8 @@ void CWriter::writeOperand(Value *Operand, enum OperandContext Context, bool sta
 
   if (isAddressImplicit)
     Out << ')';
+
+  errs() << "CBackend: writeoperand here 3674? \n";
 }
 
 /// writeOperandDeref - Print the result of dereferencing the specified
@@ -7101,6 +7076,7 @@ void CWriter::OMP_RecordLiveIns(LoopProfile *LP){
 }
 
 void CWriter::printBasicBlock(BasicBlock *BB, std::set<Value*> skipInsts) {
+  errs() << "CBEBackend: printing bb 7082 " << BB->getName() << "\n";
 
 if( NATURAL_CONTROL_FLOW ){
   // Don't print the label for the basic block if there are no uses, or if
@@ -10344,7 +10320,7 @@ void CWriter::writeMemoryAccess(Value *Operand, Type *OperandType,
 }
 
 void CWriter::visitLoadInst(LoadInst &I) {
-  errs() << "SUSAN: curinstr before loadinst: " << *CurInstr << "\n";
+  //errs() << "SUSAN: curinstr before loadinst: " << *CurInstr << "\n";
   CurInstr = &I;
   errs() << "SUSAN: loadInst: " << I << "\n";
 
@@ -10460,8 +10436,10 @@ void CWriter::visitStoreInst(StoreInst &I) {
   }
   else{
 
+  errs() << "CBackend: here? 10442\n";
   writeMemoryAccess(I.getPointerOperand(), I.getOperand(0)->getType(),
                     I.isVolatile(), I.getAlignment());
+  errs() << "CBackend: here? 10445\n";
   }
   Out << " = ";
   Value *Operand = I.getOperand(0);
@@ -10478,6 +10456,7 @@ void CWriter::visitStoreInst(StoreInst &I) {
   if (BitMask)
     Out << "((";
   writeOperand(Operand, BitMask ? ContextNormal : ContextCasted);
+  errs() << "CBackend: here? 10462\n";
   if (BitMask)
     Out << ") & " << BitMask << ")";
 }
