@@ -269,7 +269,7 @@ void LoopRegion::printRegionDAG(){
   //  }
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
-  if(headerBr->getMetadata("splendid.parallelized.loop")){
+  if(headerBr->getMetadata("splendid.doall.loop")){
     cw->Out << "#pragma omp parallel for ";
   }
 
