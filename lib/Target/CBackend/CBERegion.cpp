@@ -273,11 +273,27 @@ void LoopRegion::printRegionDAG(){
     cw->Out << "#pragma omp parallel for ";
   }
 
-  for(auto &I : *header){
-    if(I.getMetadata("splendid.reduce.add")){
-      cw->Out << "reduction(+:";
-      cw->writeOperand(&I);
-      cw->Out << ")";
+  for (BasicBlock *BB : loop->getBlocks()){
+    for(auto &I : *BB){
+      if(I.getMetadata("splendid.reduce.add")){
+        cw->Out << "reduction(+:";
+        cw->writeOperand(&I);
+        cw->Out << ")";
+      }
+      else if(I.getMetadata("splendid.arr.reduce.add")){
+        cw->Out << "reduction(+:";
+        GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&I);
+        Value *ptr = gep->getPointerOperand();
+        cw->Out<<cw->GetValueName(ptr);
+        PointerType *ptrTy = dyn_cast<PointerType>(ptr->getType());
+        cw->Out << "[0:";
+        assert(ptrTy && "CBERegion: not a pointer type? 288\n");
+        ArrayType* arrTy = dyn_cast<ArrayType>(ptrTy->getPointerElementType());
+        assert(arrTy && "CBERegion: not an array type? 290\n");
+        cw->Out << arrTy->getNumElements();
+        cw->Out << "]";
+        cw->Out << ")";
+      }
     }
   }
 
