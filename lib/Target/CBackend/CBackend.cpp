@@ -4562,6 +4562,7 @@ void CWriter::generateHeader(Module &M) {
     if((&*I)->getName().contains("fprintf")) continue;
     if((&*I)->getName().contains("atoll")) continue;
     if((&*I)->getName().contains("calloc")) continue;
+    if((&*I)->getName().contains("puts")) continue;
     //Hailong Jiang 04/04/2023
     if((&*I)->getName().contains("printf")) continue;
     if((&*I)->getName().contains("fputc")) continue;
