@@ -375,7 +375,7 @@ LoopRegion::LoopRegion(BasicBlock *entryBB, LoopInfo *LI, PostDominatorTree* PDT
 
     assert(loop && "cannot find loop for a loop region\n");
     nextEntryBB = loop->getUniqueExitBlock();
-    errs() << "next entry BB: " << nextEntryBB->getName() << "\n";
+    //errs() << "next entry BB: " << nextEntryBB->getName() << "\n";
     assert(nextEntryBB && "loop doesn't have unique exit block\n");
 
     auto loopBBs = loop->getBlocks();

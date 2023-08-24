@@ -140,7 +140,7 @@ class CWriter : public ModulePass, public InstVisitor<CWriter> {
   //std::set<BasicBlock*>printedBBs;
   std::map<BasicBlock*, int> times2bePrinted;
   //std::set<BasicBlock*> splittedBBs;
-  //std::set<Instruction*> declaredInsts;
+  std::set<Instruction*> toDeclareLocals;
   std::set<std::pair<BasicBlock*, BasicBlock*>> irregularLoopExits;
   std::vector<Instruction*> ifBranches;
   std::set<GetElementPtrInst*> accessGEPMemory;
@@ -388,6 +388,7 @@ private:
   bool GEPAccessesMemory(GetElementPtrInst *I);
   void collectNoneArrayGEPs(Function &F);
   void collectVariables2Deref(Function &F);
+  void collectLateDeclares(Function &F);
   Value* findUnderlyingObject(Value *Ptr);
   void findVariableDepth(Type *Ty, Value *UO, int depths);
   void markBBwithNumOfVisits(Function &F);

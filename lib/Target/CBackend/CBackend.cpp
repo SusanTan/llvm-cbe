@@ -721,6 +721,22 @@ void CWriter::collectVariables2Deref(Function &F){
   //collect phi nodes that might be pointers/array/structs
 }
 
+void CWriter::collectLateDeclares(Function &F){
+  std::list<Loop*> loops( LI->begin(), LI->end() );
+  for(auto L : loops){
+    Instruction *term = L->getHeader()->getTerminator();
+    if(!term->getMetadata("splendid.doall.loop")) continue;
+    for (unsigned i = 0, e = L->getBlocks().size(); i != e; ++i) {
+      BasicBlock *BB = L->getBlocks()[i];
+      for(auto &I : *BB){
+        if (isInductionVariable(&I) || isExtraInductionVariable(&I) || isIVIncrement(&I)) continue;
+        if(isInlinableInst(I))continue;
+        toDeclareLocals.insert(&I);
+      }
+    }
+  }
+}
+
 void CWriter::collectNoneArrayGEPs(Function &F){
 
   std::set<GetElementPtrInst*>arrayGeps;
@@ -1752,13 +1768,27 @@ bool CWriter::runOnModule(Module &M) {
   cnt_reconstructedVariables = 0;
   bool Modified = false;
   findOMPFunctions(M);
+  std::set<Function*> functionUsed;
+
+  //TODO: do not print any functions not being called
+  for (Module::iterator FI = M.begin(), FE = M.end(); FI != FE; ++FI) {
+    Function *F = &*FI;
+    for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
+      if(CallInst *callInst = dyn_cast<CallInst>(&*I)){
+        functionUsed.insert(callInst->getCalledFunction());
+      }
+    }
+  }
+
   for (Module::iterator FI = M.begin(), FE = M.end(); FI != FE; ++FI) {
     declaredLocals.clear();
 
     Function *F = &*FI;
+    errs() << "CBackend: iterating function 1759: " << F->getName() << "\n";
     if(F->isIntrinsic()) continue;
     if(F->isDeclaration()) continue;
     if(F->getName() == "xmalloc") continue;
+    if(functionUsed.find(F) == functionUsed.end() && F->getName() != "main") continue;
 
     IS_OPENMP_FUNCTION = false;
     for(auto [call, utask] : ompFuncs){
@@ -1767,11 +1797,11 @@ bool CWriter::runOnModule(Module &M) {
         IS_OPENMP_FUNCTION = true;
     }
     if(IS_OPENMP_FUNCTION) continue;
+    errs() << "CBackend: printing function 1770" << F->getName() << "\n";
 
     // Do not codegen any 'available_externally' functions at all, they have
     // definitions outside the translation unit.
-    if (F->hasAvailableExternallyLinkage())
-      return false;
+    if (F->hasAvailableExternallyLinkage()) continue;
 
     Modified |= RunAllAnalysis(*F);
 
@@ -3614,10 +3644,11 @@ void CWriter::writeOperand(Value *Operand, enum OperandContext Context, bool sta
     Out << inlinedArgNames[Operand];
     return;
   }
-  //if(InstsToReplaceByPhi.find(Operand) != InstsToReplaceByPhi.end()){
-  //  writeOperand(InstsToReplaceByPhi[Operand]);
-  //  return;
-  //}
+
+  if(InstsToReplaceByPhi.find(Operand) != InstsToReplaceByPhi.end()){
+    writeOperand(InstsToReplaceByPhi[Operand]);
+    return;
+  }
 
   Instruction *inst = dyn_cast<Instruction>(Operand);
   if(inst && deleteAndReplaceInsts.find(inst) != deleteAndReplaceInsts.end()){
@@ -4570,6 +4601,11 @@ void CWriter::generateHeader(Module &M) {
     if((&*I)->getName().contains("posix_memalign")) continue;
     if((&*I)->getName().contains("fwrite")) continue;
     if((&*I)->getName().contains("exit")) continue;
+    if((&*I)->getName().contains("atoi")) continue;
+    if((&*I)->getName().contains("rand")) continue;
+    if((&*I)->getName().contains("fopen")) continue;
+    if((&*I)->getName().contains("fgetc")) continue;
+    if((&*I)->getName().contains("fclose")) continue;
     //if((&*I)->getName().contains("xmalloc")) continue;
     // Don't print declarations for intrinsic functions.
     // Store the used intrinsics, which need to be explicitly defined.
@@ -6106,7 +6142,7 @@ bool CWriter::isNotDuplicatedDeclaration(Instruction *I, bool isPhi) {
 }
 
 bool CWriter::canDeclareLocalLate(Instruction &I) {
-  //if(toDeclareLocal.find(&I) != toDeclareLocal.end()) return true;
+  if(toDeclareLocals.find(&I) != toDeclareLocals.end()) return true;
 
   if (!DeclareLocalsLate) {
     return false;
@@ -6749,9 +6785,10 @@ void CWriter::printInstruction(Instruction *I, bool printSemiColon){
     if(deadInsts.find(I) != deadInsts.end()) return;
     Out << "  ";
     if (!isEmptyType(I->getType()) && !isInlineAsm(*I)) {
-      if (canDeclareLocalLate(*I)) {
-        auto varName = GetValueName(&*I , true);
+      auto varName = GetValueName(&*I , true);
+      if (canDeclareLocalLate(*I) && declaredLocals.find(varName) == declaredLocals.end()) {
         printTypeName(Out, I->getType(), false) << ' ';
+        declaredLocals.insert(varName);
       }
       Out << GetValueName(&*I) << " = ";
     }
@@ -8887,6 +8924,7 @@ bool CWriter::RunAllAnalysis(Function &F){
   //markIfBranches(F, &visitedBBs); //4
   collectNoneArrayGEPs(F);
   collectVariables2Deref(F);
+  collectLateDeclares(F);
 
 
   EliminateDeadInsts(F);
