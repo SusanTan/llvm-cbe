@@ -729,11 +729,12 @@ void CWriter::collectLateDeclares(Function &F){
   std::list<Loop*> loops( LI->begin(), LI->end() );
   for(auto L : loops){
     Instruction *term = L->getHeader()->getTerminator();
-    if(!term->getMetadata("splendid.doall.loop")) continue;
+    //if(!term->getMetadata("splendid.doall.loop")) continue;
     for (unsigned i = 0, e = L->getBlocks().size(); i != e; ++i) {
       BasicBlock *BB = L->getBlocks()[i];
       for(auto &I : *BB){
-        if (isInductionVariable(&I) || isExtraInductionVariable(&I) || isIVIncrement(&I)) continue;
+        //if (isInductionVariable(&I) || isExtraInductionVariable(&I) || isIVIncrement(&I)) continue;
+        //if (isIVIncrement(&I)) continue;
         if(isInlinableInst(I))continue;
         toDeclareLocals.insert(&I);
       }
@@ -3385,13 +3386,22 @@ std::string CWriter::GetValueName(Value *Operand, bool isDeclaration) {
 
   if(!Operand) return "";
   if(IV2Name.find(Operand) != IV2Name.end()){
-    errs() << "SUSAN: found in IV2Name map " << *Operand << "\n";
-    errs() << "name:  " << IV2Name[Operand] << "\n";
-    if(isDeclaration){
-      errs() << "SUSAN: reconstructed variable counter increment for iv:" << IV2Name[Operand] << "\n";
-      cnt_reconstructedVariables++;
+    bool foundSourceName= false;
+    for(auto inst2var : IRNaming){
+      if(inst2var.first == Operand){
+        foundSourceName = true;
+        break;
+      }
     }
-    return IV2Name[Operand];
+    if(!foundSourceName){
+      errs() << "SUSAN: found in IV2Name map " << *Operand << "\n";
+      errs() << "name:  " << IV2Name[Operand] << "\n";
+      if(isDeclaration){
+        errs() << "SUSAN: reconstructed variable counter increment for iv:" << IV2Name[Operand] << "\n";
+        cnt_reconstructedVariables++;
+      }
+      return IV2Name[Operand];
+    }
   }
   errs() << "SUSAN: getting value name for: " << *Operand << "\n";
   //SUSAN: variable names associated with phi will be replaced by phi
@@ -6790,7 +6800,7 @@ void CWriter::printInstruction(Instruction *I, bool printSemiColon){
     Out << "  ";
     if (!isEmptyType(I->getType()) && !isInlineAsm(*I)) {
       auto varName = GetValueName(&*I , true);
-      if (canDeclareLocalLate(*I) && declaredLocals.find(varName) == declaredLocals.end()) {
+      if (canDeclareLocalLate(*I) && !isIVIncrement(I)) {
         printTypeName(Out, I->getType(), false) << ' ';
         declaredLocals.insert(varName);
       }
