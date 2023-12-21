@@ -1319,31 +1319,31 @@ void CWriter::preprocessSkippableBranches(Function &F){
         //  UpperBound = ldUB->getPointerOperand();
         errs() << "SUSAN: upperbound: "  << *LP->ub << "\n";
 
-        if(UpperBound == opnd0){
-           if ((cmp->getPredicate() == CmpInst::ICMP_SGT
-                || cmp->getPredicate() == CmpInst::ICMP_UGT)){
-            errs() << "SUSAN: deadbranch: " << *br << "\n";
-            deadBranches[br] = 0;
-           }
-        }
-        else if(UpperBound == opnd1){
-          bool negateCondition = false;
-          Instruction *condInst = findCondInst(LP->L, negateCondition);
-          if(cmp == condInst) continue;
+        //if(UpperBound == opnd0){
+        //   if ((cmp->getPredicate() == CmpInst::ICMP_SGT
+        //        || cmp->getPredicate() == CmpInst::ICMP_UGT)){
+        //    errs() << "SUSAN: deadbranch: " << *br << "\n";
+        //    deadBranches[br] = 0;
+        //   }
+        //}
+        //else if(UpperBound == opnd1){
+        //  bool negateCondition = false;
+        //  Instruction *condInst = findCondInst(LP->L, negateCondition);
+        //  if(cmp == condInst) continue;
 
-          if (cmp->getPredicate() == CmpInst::ICMP_SLT
-              || cmp->getPredicate() == CmpInst::ICMP_ULT){
-            deadBranches[br] = 0;
-          }
-        }
-        else if(LP->lbAlloca == opnd0
-            && (cmp->getPredicate() == CmpInst::ICMP_SGT
-                || cmp->getPredicate() == CmpInst::ICMP_UGT)){
-           Value *opnd1 = cmp->getOperand(1);
-           if(isa<SelectInst>(opnd1)){
-             deadBranches[br] = 1;
-           }
-        }
+        //  if (cmp->getPredicate() == CmpInst::ICMP_SLT
+        //      || cmp->getPredicate() == CmpInst::ICMP_ULT){
+        //    deadBranches[br] = 0;
+        //  }
+        //}
+        //else if(LP->lbAlloca == opnd0
+        //    && (cmp->getPredicate() == CmpInst::ICMP_SGT
+        //        || cmp->getPredicate() == CmpInst::ICMP_UGT)){
+        //   Value *opnd1 = cmp->getOperand(1);
+        //   if(isa<SelectInst>(opnd1)){
+        //     deadBranches[br] = 1;
+        //   }
+        //}
       }
       else{
         bool negateCondition;
