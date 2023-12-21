@@ -522,9 +522,13 @@ void CWriter::markBranchRegion(Instruction* br, CBERegion* targetRegion){
 
 
 int CBERegion2::whichRegion(BasicBlock *entryBB, LoopInfo *LI){
-  if(Loop* L = LI->getLoopFor(entryBB))
+  if(Loop* L = LI->getLoopFor(entryBB)){
+    errs() << "CBackend: entryBB is a loop: " << entryBB->getName() << "\n";
+
     if(L->getHeader() == entryBB)
       return 2;
+    errs() << "but not a header!\n";
+  }
 
   if(BranchInst *br = dyn_cast<BranchInst>(entryBB->getTerminator()))
     if(br->isConditional())
@@ -6846,7 +6850,7 @@ Instruction* CWriter::findCondInst(Loop *L, bool &negateCondition){
     if(isa<CallInst>(cond))
       loopCondCalls.insert(dyn_cast<CallInst>(cond));
     BasicBlock *succ0 = brInst->getSuccessor(0);
-    if(LI->getLoopFor(succ0) != L) negateCondition = true;
+    if(!L->contains(succ0)) negateCondition = true;
     return cast<Instruction>(cond);
   }
 

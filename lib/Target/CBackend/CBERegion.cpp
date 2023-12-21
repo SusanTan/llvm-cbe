@@ -43,10 +43,13 @@ LinearRegion::LinearRegion(BasicBlock *entryBB, CBERegion2 *parentR, LoopInfo *L
     if(lr)
       lr->removeBBToVisit(nextBB);
     BBs.push_back(nextBB);
+    errs() << "CBERegion: including " << nextBB->getName() << " in a linear region\n";
+    if(nextBB) errs() << "CBERegion: nextBB " << *nextBB << "\n";
     nextBB = nextBB->getSingleSuccessor();
     nextEntryBB = nextBB;
-    if(!nextBB || nextBB->getSingleSuccessor() == nullptr
-        || (l && l->getLoopLatch() == nextBB)) break;
+    if(!nextBB || nextBB->getSingleSuccessor() == nullptr) break;
+    Loop *lNextBB = LI->getLoopFor(nextBB);
+    if(lNextBB && lNextBB->getLoopLatch() == nextBB) break;
   }
 }
 
