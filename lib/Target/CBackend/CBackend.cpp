@@ -735,7 +735,8 @@ void CWriter::collectLateDeclares(Function &F){
       for(auto &I : *BB){
         //if (isInductionVariable(&I) || isExtraInductionVariable(&I) || isIVIncrement(&I)) continue;
         //if (isIVIncrement(&I)) continue;
-        if(isInlinableInst(I))continue;
+        if(isSkipableInst(&I))continue;
+        if(isDirectAlloca(&I))continue;
         toDeclareLocals.insert(&I);
       }
     }
@@ -6268,17 +6269,17 @@ void CWriter::DeclareLocalVariable(Instruction *I, bool &PrintedVar, bool &isDec
      isDeclared = true;
    } else if (!isEmptyType(I->getType()) && !isInlinableInst(*I)) {
 
-    /*
-     * OpenMP: skip some declarations related to OpenMP calls
-     */
-    if(CallInst* CI = dyn_cast<CallInst>(&*I))
-      if(Function *ompCall = CI->getCalledFunction())
-        if(ompCall->getName().contains("__kmpc_master")
-            || ompCall->getName().contains("__kmpc_end_master"))
-          return;
-    /*
-     * OpenMP end
-     */
+    ///*
+    // * OpenMP: skip some declarations related to OpenMP calls
+    // */
+    //if(CallInst* CI = dyn_cast<CallInst>(&*I))
+    //  if(Function *ompCall = CI->getCalledFunction())
+    //    if(ompCall->getName().contains("__kmpc_master")
+    //        || ompCall->getName().contains("__kmpc_end_master"))
+    //      return;
+    ///*
+    // * OpenMP end
+    // */
 
      auto varName = GetValueName(I);
      errs() << "SUSAN: declaring varName 5298: " << varName << "\n";
@@ -6389,8 +6390,8 @@ void CWriter::printFunction(Function &F, bool inlineF) {
             std::string varName = var->getName().str();
             if (isa<ValueAsMetadata>(valMeta)){
               Value *valV = cast<ValueAsMetadata>(valMeta)->getValue();
-              if(AllocaInst *alloca = dyn_cast<AllocaInst>(valV))
-                noneSkipAllocaInsts.insert(alloca);
+              //if(AllocaInst *alloca = dyn_cast<AllocaInst>(valV))
+              //  noneSkipAllocaInsts.insert(alloca);
               if(Argument *arg = dyn_cast<Argument>(valV)){
                 errs() << "SUSAN: found argument 6346: " << *valV << "\n";
                 if( Var2IRs.find(varName) == Var2IRs.end() )
@@ -6801,6 +6802,7 @@ void CWriter::printInstruction(Instruction *I, bool printSemiColon){
     if (!isEmptyType(I->getType()) && !isInlineAsm(*I)) {
       auto varName = GetValueName(&*I , true);
       if (canDeclareLocalLate(*I) && !isIVIncrement(I)) {
+        errs() << "SUSAN: printing type name for " << varName << " at 6805\n";
         printTypeName(Out, I->getType(), false) << ' ';
         declaredLocals.insert(varName);
       }
@@ -7085,7 +7087,7 @@ bool is_number(const std::string& s)
 }
 
 bool CWriter::isSkipableInst(Instruction* inst){
-    if(noneSkipAllocaInsts.find(inst) != noneSkipAllocaInsts.end())return false;
+    //if(noneSkipAllocaInsts.find(inst) != noneSkipAllocaInsts.end())return false;
     if(omp_SkipVals.find(inst) != omp_SkipVals.end()) return true;
     //if(skipInstsForPhis.find(inst) != skipInstsForPhis.end()) return true;
     if(deadInsts.find(inst) != deadInsts.end()) return true;
@@ -7098,8 +7100,10 @@ bool CWriter::isSkipableInst(Instruction* inst){
 
     if(CallInst* CI = dyn_cast<CallInst>(inst))
       if(Function *F = CI->getCalledFunction())
-        if (F->getIntrinsicID() == Intrinsic::dbg_value)
+        if (F->getIntrinsicID() == Intrinsic::dbg_value
+            || F->getIntrinsicID() == Intrinsic::dbg_declare){
           return true;
+        }
 
 
     return false;
@@ -7189,21 +7193,23 @@ if( NATURAL_CONTROL_FLOW ){
       }
     }
 
-    if(noneSkipAllocaInsts.find(&*II) != noneSkipAllocaInsts.end()){
-      AllocaInst *alloca = dyn_cast<AllocaInst>(&*II);
-      PointerType *ptrTy = dyn_cast<PointerType>(II->getType());
-      if(ptrTy){
-        printTypeName(Out, ptrTy->getPointerElementType(), false) << ' ';
-      }
-      Out << GetValueName(&*II);
+    //if(noneSkipAllocaInsts.find(&*II) != noneSkipAllocaInsts.end()){
+    //  AllocaInst *alloca = dyn_cast<AllocaInst>(&*II);
+    //  PointerType *ptrTy = dyn_cast<PointerType>(II->getType());
+    //  if(ptrTy){
+    //    errs() << "SUSAN: printing type name at 7200 " << *alloca << "\n";
+    //    printTypeName(Out, ptrTy->getPointerElementType(), false) << ' ';
+    //  }
+    //  Out << GetValueName(&*II);
 
-      Type *currTy = alloca->getAllocatedType();
-      while(ArrayType *arrTy = dyn_cast<ArrayType>(currTy)){
-        Out << '[' << arrTy->getNumElements() << ']';
-        currTy = arrTy->getElementType();
-      }
-      Out << ";\n";
-    } else if (!isInlinableInst(*II)) {
+    //  Type *currTy = alloca->getAllocatedType();
+    //  while(ArrayType *arrTy = dyn_cast<ArrayType>(currTy)){
+    //    Out << '[' << arrTy->getNumElements() << ']';
+    //    currTy = arrTy->getElementType();
+    //  }
+    //  Out << ";\n";
+    //} else
+    if (!isInlinableInst(*II)) {
       errs() << "SUSAN: printing instruction " << *II << " at 6678\n";
       if (!isEmptyType(II->getType()) || isa<StoreInst>(&*II))
         Out << "  ";
