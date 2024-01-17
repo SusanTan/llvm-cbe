@@ -9972,6 +9972,7 @@ bool CWriter::printGEPExpressionStruct(Value *Ptr, gep_type_iterator I,
       }
     }
     else{
+      errs() <<  "SUSAN: printing Ptr 9975 " << *Ptr << "\n";
       writeOperandInternal(Ptr, ContextNormal, false);
     }
   }
@@ -9991,6 +9992,7 @@ bool CWriter::printGEPExpressionStruct(Value *Ptr, gep_type_iterator I,
           Out << ')';
         }
         else{
+          errs() << "SUSAN: writing ptr 9994: " << *Ptr << "\n";
           writeOperandInternal(Ptr, ContextNormal, false);
           Out << '[';
           writeOperand(FirstOp);
@@ -10058,6 +10060,7 @@ bool CWriter::printGEPExpressionStruct(Value *Ptr, gep_type_iterator I,
         }
       } else if(!isConstantNull(Opnd)) {
         if(currValue2DerefCnt.second){
+          errs() << "SUSAN: 10062: " << *Opnd << "\n";
           currValue2DerefCnt.second--;
           Out << '[';
           writeOperand(Opnd);
@@ -10070,18 +10073,20 @@ bool CWriter::printGEPExpressionStruct(Value *Ptr, gep_type_iterator I,
       }
     }
     else if(isa<StructType>(prevType)){
+      errs() << "SUSAN: is StructType 10074\n";
       if(accessMemory){
-        if(currValue2DerefCnt.second){
-          currValue2DerefCnt.second--;
+        //if(currValue2DerefCnt.second){
+          //errs() << "SUSAN: is StructType 10079\n";
+          //currValue2DerefCnt.second--;
           if(isPointer)
             Out << "->field" << cast<ConstantInt>(Opnd)->getZExtValue();
           else
             Out << ".field" << cast<ConstantInt>(Opnd)->getZExtValue();
           isPointer = false;
-        }
-        else{
-          assert( 0 && "SUSAN: dereferencing more than expected?\n");
-        }
+        //}
+        //else{
+        //  assert( 0 && "SUSAN: dereferencing more than expected?\n");
+        //}
       } else{
         if(isPointer)
           Out << "->field" << cast<ConstantInt>(Opnd)->getZExtValue();
@@ -10430,6 +10435,7 @@ void CWriter::visitLoadInst(LoadInst &I) {
 
 void CWriter::visitStoreInst(StoreInst &I) {
   CurInstr = &I;
+  errs() << "CBEBackend: printing store Inst: " << I << "\n";
 
   AllocaInst *noneSkipAlloca = nullptr;
 
@@ -10441,65 +10447,68 @@ void CWriter::visitStoreInst(StoreInst &I) {
     gep = dyn_cast<GetElementPtrInst>(gep->getPointerOperand());
   }
 
-  if(noneSkipAlloca){
-    Out << GetValueName(noneSkipAlloca);
-    while(!geps.empty()){
-      auto gep = geps.top();
-      geps.pop();
-      Out << '[';
-      int idx = 0;
-      std::vector<Value*>vals2write;
-      for(unsigned int i =1; i!=gep->getNumOperands(); i++){
-        if(ConstantInt *constInt = dyn_cast<ConstantInt>(gep->getOperand(i)))
-          idx += constInt->getSExtValue();
-        if(Instruction *inst = dyn_cast<Instruction>(gep->getOperand(i))){
-          if(inst->getOpcode() == Instruction::Mul)
-            vals2write.push_back(inst->getOperand(0));
-          else
-            vals2write.push_back(inst);
-        }
-      }
+  //if(noneSkipAlloca){
+  //  Out << GetValueName(noneSkipAlloca);
+  //  while(!geps.empty()){
+  //    auto gep = geps.top();
+  //    errs() << "SUSAN: printing noneSkipAlloca: " << *gep << "\n";
+  //    geps.pop();
+  //    Out << '[';
+  //    int idx = 0;
+  //    std::vector<Value*>vals2write;
+  //    for(unsigned int i =1; i!=gep->getNumOperands(); i++){
+  //      if(ConstantInt *constInt = dyn_cast<ConstantInt>(gep->getOperand(i)))
+  //        idx += constInt->getSExtValue();
+  //      if(Instruction *inst = dyn_cast<Instruction>(gep->getOperand(i))){
+  //        if(inst->getOpcode() == Instruction::Mul)
+  //          vals2write.push_back(inst->getOperand(0));
+  //        else
+  //          vals2write.push_back(inst);
+  //      } else {
+  //        vals2write.push_back(gep->getOperand(i));
+  //      }
+  //    }
 
-      writeOperand(vals2write[0]);
-      for (auto it = begin(vals2write)+1; it != end(vals2write); ++it) {
-        Out << " + " ;
-        writeOperand(*it);
-      }
-      if(idx)
-        Out << " + " << idx << ']';
-      else
-        Out << ']';
-    }
-  } else if(doubleGeps.find(&I) != doubleGeps.end()){
-    GetElementPtrInst *gep = cast<GetElementPtrInst>(I.getPointerOperand());
-    GetElementPtrInst *gep2 = cast<GetElementPtrInst>(gep->getPointerOperand());
-    auto ptrVal = gep2->getPointerOperand();
-    Out << GetValueName(ptrVal);
-    auto firstIdx = gep->getOperand(1);
-    errs() << "SUSAN: gep 10928: " << *gep << "\n";
-    errs() << "SUSAN:writing first index: "<< *firstIdx << "\n";
-    Out << "[";
-    if(ConstantInt *idx = dyn_cast<ConstantInt>(firstIdx))
-      Out << idx->getSExtValue();
-   else
-      writeOperand(firstIdx);
+  //    writeOperand(vals2write[0]);
+  //    for (auto it = begin(vals2write)+1; it != end(vals2write); ++it) {
+  //      Out << " + " ;
+  //      writeOperand(*it);
+  //    }
+  //    if(idx)
+  //      Out << " + " << idx << ']';
+  //    else
+  //      Out << ']';
+  //  }
+  //} else if(doubleGeps.find(&I) != doubleGeps.end()){
+  //  GetElementPtrInst *gep = cast<GetElementPtrInst>(I.getPointerOperand());
+  //  GetElementPtrInst *gep2 = cast<GetElementPtrInst>(gep->getPointerOperand());
+  //  auto ptrVal = gep2->getPointerOperand();
+  //  Out << GetValueName(ptrVal);
+  //  auto firstIdx = gep->getOperand(1);
+  //  errs() << "SUSAN: gep 10928: " << *gep << "\n";
+  //  errs() << "SUSAN:writing first index: "<< *firstIdx << "\n";
+  //  Out << "[";
+  //  if(ConstantInt *idx = dyn_cast<ConstantInt>(firstIdx))
+  //    Out << idx->getSExtValue();
+  // else
+  //    writeOperand(firstIdx);
 
-    auto secondIdx = gep2->getOperand(1);
-    Out << "+";
-    if(ConstantInt *idx = dyn_cast<ConstantInt>(secondIdx))
-      Out << idx->getSExtValue();
-   else
-      writeOperand(secondIdx);
+  //  auto secondIdx = gep2->getOperand(1);
+  //  Out << "+";
+  //  if(ConstantInt *idx = dyn_cast<ConstantInt>(secondIdx))
+  //    Out << idx->getSExtValue();
+  // else
+  //    writeOperand(secondIdx);
 
-   Out << "]";
-  }
-  else{
+  // Out << "]";
+  //}
+  //else{
 
   errs() << "CBackend: here? 10442\n";
   writeMemoryAccess(I.getPointerOperand(), I.getOperand(0)->getType(),
                     I.isVolatile(), I.getAlignment());
   errs() << "CBackend: here? 10445\n";
-  }
+  //}
   Out << " = ";
   Value *Operand = I.getOperand(0);
   unsigned BitMask = 0;
