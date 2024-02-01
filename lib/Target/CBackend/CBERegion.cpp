@@ -306,7 +306,9 @@ void LoopRegion::printRegionDAG(){
   cw->printTypeName(cw->Out, IV->getType(), true);
   cw->Out << " ";
   cw->Out << cw->GetValueName(IV, true) << " = ";
-  cw->writeOperand(lb);
+  if(Instruction* lbInst = dyn_cast<Instruction>(lb))
+    cw->writeInstComputationInline(*lbInst);
+  else cw->writeOperand(lb);
   cw->Out << "; ";
 
   //exit condition
