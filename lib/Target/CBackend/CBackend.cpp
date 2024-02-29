@@ -4451,6 +4451,7 @@ void CWriter::generateHeader(Module &M) {
   OutHeaders << "#include <stdint.h>\n"; // Sized integer support
   OutHeaders << "#include <stdio.h>\n"; //
   OutHeaders << "#include <stdlib.h>\n";
+  OutHeaders << "#include <string.h>\n";
   if (headerIncMath())
     OutHeaders << "#include <math.h>\n";
   // Provide a definition for `bool' if not compiling with a C++ compiler.
@@ -4621,6 +4622,7 @@ void CWriter::generateHeader(Module &M) {
     if((&*I)->getName().contains("fopen")) continue;
     if((&*I)->getName().contains("fgetc")) continue;
     if((&*I)->getName().contains("fclose")) continue;
+    if((&*I)->getName().contains("memcpy")) continue;
     //if((&*I)->getName().contains("xmalloc")) continue;
     // Don't print declarations for intrinsic functions.
     // Store the used intrinsics, which need to be explicitly defined.
