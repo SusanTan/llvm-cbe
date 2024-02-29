@@ -259,21 +259,108 @@ void LoopRegion::printRegionDAG(){
     errs() << "SUSAN: printing condRelatedInst: " << *inst << "\n";
     cw->printInstruction(inst);
   }
-  //Hailong Jiang
-  //To print parallelized loop
-  //errs() << "Hailong: To print parallelized loop \n";
-  //for (BasicBlock *BB : loop->getBlocks()){
-  //        Instruction *term = BB->getTerminator();
-  //        BranchInst *br = dyn_cast<BranchInst>(term);
-  //        if(br->getMetadata("splendid.parallelized.loop")){
-  //          cw->Out << "#pragma omp parallel for \n";
-  //          errs() << "Hailong: print '#pragma omp parallel for' ";
-  //        }
-  //  }
+
+  //find all the metadatas for offlaoding
+   Function* F = header->getParent();
+   std::map<MDNode*, Instruction*> sizeMDmap;
+   for (inst_iterator ii = inst_begin(F), E = inst_end(F); ii != E; ++ii){
+     if(MDNode* md = &*ii->getMetadata("splendid.target.datasize")){
+       sizeMDmap[md] = &*ii;
+     }
+   }
+
+   std::map<Value*, Value*> tomaps, frommaps, emptymap;
+   for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
+     errs() << "SUSAN: extract data mapping metadata from " << *I << "\n";
+     Instruction *inst = &*I;
+     std::map<Value*, Value*> *tmpmap = &emptymap;
+     MDNode *md = nullptr;
+     Value* ptr = inst;
+     if(md = inst->getMetadata("splendid.target.mapdata.to")){
+       tmpmap = &tomaps;
+       while(Instruction* ptrInst = dyn_cast<Instruction>(ptr)){
+         if(!isa<CastInst>(ptrInst)) break;
+         ptr = ptrInst->getOperand(0);
+       }
+     }
+     else if(md = inst->getMetadata("splendid.target.mapdata.from")){
+       tmpmap = &frommaps;
+       while(Instruction* ptrInst = dyn_cast<Instruction>(ptr)){
+         if(!isa<CastInst>(ptrInst)) break;
+         ptr = ptrInst->getOperand(0);
+       }
+     }
+
+     if(md){
+       errs() << *md << "\n";
+       errs() << "operand:" << *md->getOperand(0) << "\n";
+       if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (md->getOperand(0))){
+         ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+         (*tmpmap)[ptr] = val;
+       }
+       else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(md->getOperand(0))){
+         (*tmpmap)[ptr] = sizeMDmap[mdSize];
+       }
+     }
+   }
+
+   std::map<Value*, Value*> tofrommaps;
+   for(auto [tomem, tosize] : tomaps)
+     for(auto [frommem, fromsize] : frommaps)
+       if(tomem == frommem)
+         tofrommaps[tomem] = tosize;
+
+   for(auto [tofrommem, tofromsize] : tofrommaps){
+     tomaps.erase(tofrommem);
+     frommaps.erase(tofrommem);
+   }
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
-  if(headerBr->getMetadata("splendid.doall.loop")){
-    cw->Out << "#pragma omp parallel for ";
+  if(headerBr->getMetadata("splendid.doall.loop.block")){
+    cw->Out << "#pragma omp parallel for";
+  }
+
+  if(headerBr->getMetadata("splendid.doall.loop.grid")){
+    cw->Out << "#pragma omp target teams distribute";
+    if(!tomaps.empty()){
+       cw->Out << " map(to: ";
+       bool printComma = false;
+       for(auto [tomem, tosize] : tomaps){
+         if(printComma) cw->Out << ", ";
+         printComma=true;
+         cw->writeOperandInternal(tomem);
+         cw->Out << "[0:";
+         cw->writeOperandInternal(tosize);
+         cw->Out << "]";
+       }
+       cw->Out << ")";
+     }
+     if(!frommaps.empty()){
+       cw->Out << " map(from: ";
+       bool printComma = false;
+       for(auto [frommem, fromsize] : frommaps){
+         if(printComma) cw->Out << ", ";
+         printComma=true;
+         cw->writeOperandInternal(frommem);
+         cw->Out << "[0:";
+         cw->writeOperandInternal(fromsize);
+         cw->Out << "]";
+       }
+       cw->Out << ")";
+     }
+     if(!tofrommaps.empty()){
+       cw->Out << " map(tofrom: ";
+       bool printComma = false;
+       for(auto [tofrommem, tofromsize] : tofrommaps){
+         if(printComma) cw->Out << ", ";
+         printComma=true;
+         cw->writeOperandInternal(tofrommem);
+         cw->Out << "[0:";
+         cw->writeOperandInternal(tofromsize);
+         cw->Out << "]";
+       }
+       cw->Out << ")";
+     }
   }
 
   for (BasicBlock *BB : loop->getBlocks()){
