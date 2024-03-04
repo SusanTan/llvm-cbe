@@ -272,18 +272,18 @@ void LoopRegion::printRegionDAG(){
   //  }
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
-  if(headerBr->getMetadata("splendid.doall.loop")){
+  if(headerBr->getMetadata("tulip.doall.loop.grid")){
     cw->Out << "#pragma omp parallel for ";
   }
 
   for (BasicBlock *BB : loop->getBlocks()){
     for(auto &I : *BB){
-      if(I.getMetadata("splendid.reduce.add")){
+      if(I.getMetadata("tulip.reduce.add")){
         cw->Out << "reduction(+:";
         cw->writeOperand(&I);
         cw->Out << ")";
       }
-      else if(I.getMetadata("splendid.arr.reduce.add")){
+      else if(I.getMetadata("tulip.arr.reduce.add")){
         cw->Out << "reduction(+:";
         GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&I);
         Value *ptr = gep->getPointerOperand();
