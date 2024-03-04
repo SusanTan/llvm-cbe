@@ -371,7 +371,7 @@ void LoopRegion::printRegionDAG(){
         cw->Out << ")";
       }
       else if(I.getMetadata("tulip.arr.reduce.add")){
-        cw->Out << "#pragma omp simd reduction(-:";
+        cw->Out << "#pragma omp simd reduction(+:";
         GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&I);
         Value *ptr = gep->getPointerOperand();
         cw->Out<<cw->GetValueName(ptr);
