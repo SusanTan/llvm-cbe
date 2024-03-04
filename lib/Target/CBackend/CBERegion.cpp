@@ -264,7 +264,7 @@ void LoopRegion::printRegionDAG(){
    Function* F = header->getParent();
    std::map<MDNode*, Instruction*> sizeMDmap;
    for (inst_iterator ii = inst_begin(F), E = inst_end(F); ii != E; ++ii){
-     if(MDNode* md = &*ii->getMetadata("splendid.target.datasize")){
+     if(MDNode* md = &*ii->getMetadata("tulip.target.datasize")){
        sizeMDmap[md] = &*ii;
      }
    }
@@ -276,14 +276,14 @@ void LoopRegion::printRegionDAG(){
      std::map<Value*, Value*> *tmpmap = &emptymap;
      MDNode *md = nullptr;
      Value* ptr = inst;
-     if(md = inst->getMetadata("splendid.target.mapdata.to")){
+     if(md = inst->getMetadata("tulip.target.mapdata.to")){
        tmpmap = &tomaps;
        while(Instruction* ptrInst = dyn_cast<Instruction>(ptr)){
          if(!isa<CastInst>(ptrInst)) break;
          ptr = ptrInst->getOperand(0);
        }
      }
-     else if(md = inst->getMetadata("splendid.target.mapdata.from")){
+     else if(md = inst->getMetadata("tulip.target.mapdata.from")){
        tmpmap = &frommaps;
        while(Instruction* ptrInst = dyn_cast<Instruction>(ptr)){
          if(!isa<CastInst>(ptrInst)) break;
@@ -316,11 +316,11 @@ void LoopRegion::printRegionDAG(){
    }
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
-  if(headerBr->getMetadata("splendid.doall.loop.block")){
+  if(headerBr->getMetadata("tulip.doall.loop.block")){
     cw->Out << "#pragma omp parallel for";
   }
 
-  if(headerBr->getMetadata("splendid.doall.loop.grid")){
+  if(headerBr->getMetadata("tulip.doall.loop.grid")){
     cw->Out << "#pragma omp target teams distribute";
     if(!tomaps.empty()){
        cw->Out << " map(to: ";
@@ -365,13 +365,13 @@ void LoopRegion::printRegionDAG(){
 
   for (BasicBlock *BB : loop->getBlocks()){
     for(auto &I : *BB){
-      if(I.getMetadata("splendid.reduce.add")){
-        cw->Out << "reduction(+:";
+      if(I.getMetadata("tulip.reduce.add")){
+        cw->Out << "#pragma omp simd reduction(+:";
         cw->writeOperand(&I);
         cw->Out << ")";
       }
-      else if(I.getMetadata("splendid.arr.reduce.add")){
-        cw->Out << "reduction(+:";
+      else if(I.getMetadata("tulip.arr.reduce.add")){
+        cw->Out << "#pragma omp simd reduction(-:";
         GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&I);
         Value *ptr = gep->getPointerOperand();
         cw->Out<<cw->GetValueName(ptr);
