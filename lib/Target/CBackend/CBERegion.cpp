@@ -272,7 +272,8 @@ void LoopRegion::printRegionDAG(){
   //  }
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
-  if(headerBr->getMetadata("tulip.doall.loop.grid")){
+  if(headerBr->getMetadata("tulip.doall.loop.grid") ||
+      headerBr->getMetadata("noelle.doall.loop")){
     cw->Out << "#pragma omp parallel for ";
   }
 
