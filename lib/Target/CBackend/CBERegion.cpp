@@ -319,8 +319,7 @@ void LoopRegion::printRegionDAG(){
   if(headerBr->getMetadata("tulip.doall.loop.block")){
     cw->Out << "#pragma omp parallel for";
   }
-
-  if(headerBr->getMetadata("tulip.doall.loop.grid")){
+  else if(headerBr->getMetadata("tulip.doall.loop.grid")){
     cw->Out << "#pragma omp target teams distribute";
     if(!tomaps.empty()){
        cw->Out << " map(to: ";
@@ -361,6 +360,9 @@ void LoopRegion::printRegionDAG(){
        }
        cw->Out << ")";
      }
+  }
+  else if(headerBr->getMetadata("noelle.doall.loop")){
+    cw->Out << "#pragma omp parallel for";
   }
 
   for (BasicBlock *BB : loop->getBlocks()){
