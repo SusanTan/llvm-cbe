@@ -6395,10 +6395,13 @@ void CWriter::printFunction(Function &F, bool inlineF) {
               //if(AllocaInst *alloca = dyn_cast<AllocaInst>(valV))
               //  noneSkipAllocaInsts.insert(alloca);
               if(Argument *arg = dyn_cast<Argument>(valV)){
+                if(varName == "i" || varName == "j" || varName == "k") continue;
                 errs() << "SUSAN: found argument 6346: " << *valV << "\n";
                 if( Var2IRs.find(varName) == Var2IRs.end() )
                   Var2IRs[varName] = std::set<Value*>();
                 Var2IRs[varName].insert(arg);
+                errs() << "CBackend: varname: " << varName << "\n";
+                errs() << *CI << "\n";
                 allVars.insert(varName);
 
                 // build IR -> Vars table
