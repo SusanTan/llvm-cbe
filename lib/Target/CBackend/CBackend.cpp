@@ -6801,6 +6801,11 @@ void CWriter::printCmpOperator(ICmpInst *icmp, bool negateCondition){
 }
 
 void CWriter::printInstruction(Instruction *I, bool printSemiColon){
+    if(CallInst *CI = dyn_cast<CallInst>(I)){
+       if(CI->getCalledFunction()->getName() == "cudaMemcpy"){
+         return;
+       }
+    }
     if(omp_SkipVals.find(I) != omp_SkipVals.end()) return;
     if(deadInsts.find(I) != deadInsts.end()) return;
     Out << "  ";
