@@ -282,12 +282,16 @@ void LoopRegion::printRegionDAG(){
       tmpmap = &tofrommaps;
       mdTo = inst->getMetadata("tulip.target.mapdata.to");
       mdFrom = inst->getMetadata("tulip.target.mapdata.from");
+      inst->setMetadata("tulip.target.mapdata.to", NULL);
+      inst->setMetadata("tulip.target.mapdata.from", NULL);
     }
     else if(md = inst->getMetadata("tulip.target.mapdata.to")){
       tmpmap = &tomaps;
+      inst->setMetadata("tulip.target.mapdata.to", NULL);
     }
     else if(md = inst->getMetadata("tulip.target.mapdata.from")){
       tmpmap = &frommaps;
+      inst->setMetadata("tulip.target.mapdata.from", NULL);
     }
     if(md){
       if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (md->getOperand(0))){
@@ -331,46 +335,50 @@ void LoopRegion::printRegionDAG(){
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
   if(headerBr->getMetadata("tulip.doall.loop.grid")){
-    cw->Out << "#pragma omp target teams distribute parallel for";
-    if(!tomaps.empty()){
-      cw->Out << " map(to: ";
-      bool printComma = false;
-      for(auto [tomem, tosize] : tomaps){
-        if(printComma) cw->Out << ", ";
-        printComma=true;
-        cw->writeOperandInternal(tomem);
-        cw->Out << "[0:";
-        cw->writeOperandInternal(tosize);
-        cw->Out << "]";
+    if(!tomaps.empty() || !frommaps.empty() || !tofrommaps.empty()){
+      cw->Out << "#pragma omp target data";
+      if(!tomaps.empty()){
+        cw->Out << " map(to: ";
+        bool printComma = false;
+        for(auto [tomem, tosize] : tomaps){
+          if(printComma) cw->Out << ", ";
+          printComma=true;
+          cw->writeOperandInternal(tomem);
+          cw->Out << "[0:";
+          cw->writeOperandInternal(tosize);
+          cw->Out << "]";
+        }
+        cw->Out << ")";
       }
-      cw->Out << ")";
-    }
-    if(!frommaps.empty()){
-      cw->Out << " map(from: ";
-      bool printComma = false;
-      for(auto [frommem, fromsize] : frommaps){
-        if(printComma) cw->Out << ", ";
-        printComma=true;
-        cw->writeOperandInternal(frommem);
-        cw->Out << "[0:";
-        cw->writeOperandInternal(fromsize);
-        cw->Out << "]";
+      if(!frommaps.empty()){
+        cw->Out << " map(from: ";
+        bool printComma = false;
+        for(auto [frommem, fromsize] : frommaps){
+          if(printComma) cw->Out << ", ";
+          printComma=true;
+          cw->writeOperandInternal(frommem);
+          cw->Out << "[0:";
+          cw->writeOperandInternal(fromsize);
+          cw->Out << "]";
+        }
+        cw->Out << ")";
       }
-      cw->Out << ")";
-    }
-    if(!tofrommaps.empty()){
-      cw->Out << " map(tofrom: ";
-      bool printComma = false;
-      for(auto [tofrommem, tofromsize] : tofrommaps){
-        if(printComma) cw->Out << ", ";
-        printComma=true;
-        cw->writeOperandInternal(tofrommem);
-        cw->Out << "[0:";
-        cw->writeOperandInternal(tofromsize);
-        cw->Out << "]";
+      if(!tofrommaps.empty()){
+        cw->Out << " map(tofrom: ";
+        bool printComma = false;
+        for(auto [tofrommem, tofromsize] : tofrommaps){
+          if(printComma) cw->Out << ", ";
+          printComma=true;
+          cw->writeOperandInternal(tofrommem);
+          cw->Out << "[0:";
+          cw->writeOperandInternal(tofromsize);
+          cw->Out << "]";
+        }
+        cw->Out << ")";
       }
-      cw->Out << ")";
+      cw->Out << "\n{\n";
     }
+    cw->Out << "#pragma omp target teams distribute parallel for\n";
   }
 
   //for (BasicBlock *BB : loop->getBlocks()){
