@@ -269,31 +269,27 @@ void LoopRegion::printRegionDAG(){
     }
   }
 
-  std::map<Value*, Value*> tomaps, frommaps, emptymap;
+  std::map<Value*, Value*> tomaps, frommaps, emptymap, tofrommaps;
   for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
     errs() << "SUSAN: extract data mapping metadata from " << *I << "\n";
     Instruction *inst = &*I;
     std::map<Value*, Value*> *tmpmap = &emptymap;
+    MDNode *mdTo = nullptr;
+    MDNode *mdFrom = nullptr;
     MDNode *md = nullptr;
     Value* ptr = inst;
-    if(md = inst->getMetadata("tulip.target.mapdata.to")){
+    if(inst->getMetadata("tulip.target.mapdata.to") && inst->getMetadata("tulip.target.mapdata.from")){
+      tmpmap = &tofrommaps;
+      mdTo = inst->getMetadata("tulip.target.mapdata.to");
+      mdFrom = inst->getMetadata("tulip.target.mapdata.from");
+    }
+    else if(md = inst->getMetadata("tulip.target.mapdata.to")){
       tmpmap = &tomaps;
-      while(Instruction* ptrInst = dyn_cast<Instruction>(ptr)){
-        if(!isa<CastInst>(ptrInst)) break;
-        ptr = ptrInst->getOperand(0);
-      }
     }
     else if(md = inst->getMetadata("tulip.target.mapdata.from")){
       tmpmap = &frommaps;
-      while(Instruction* ptrInst = dyn_cast<Instruction>(ptr)){
-        if(!isa<CastInst>(ptrInst)) break;
-        ptr = ptrInst->getOperand(0);
-      }
     }
-
     if(md){
-      errs() << *md << "\n";
-      errs() << "operand:" << *md->getOperand(0) << "\n";
       if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (md->getOperand(0))){
         ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
         (*tmpmap)[ptr] = val;
@@ -302,18 +298,36 @@ void LoopRegion::printRegionDAG(){
         (*tmpmap)[ptr] = sizeMDmap[mdSize];
       }
     }
+    else if(mdTo && mdFrom){
+      if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdTo->getOperand(0))){
+        ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+        (*tmpmap)[ptr] = val;
+      }
+      else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdTo->getOperand(0))){
+        if(sizeMDmap[mdSize])
+          (*tmpmap)[ptr] = sizeMDmap[mdSize];
+      }
+
+      if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdFrom->getOperand(0))){
+        ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+        (*tmpmap)[ptr] = val;
+      }
+      else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdFrom->getOperand(0))){
+        if(sizeMDmap[mdSize])
+          (*tmpmap)[ptr] = sizeMDmap[mdSize];
+      }
+    }
   }
 
-  std::map<Value*, Value*> tofrommaps;
-  for(auto [tomem, tosize] : tomaps)
-    for(auto [frommem, fromsize] : frommaps)
-      if(tomem == frommem)
-        tofrommaps[tomem] = tosize;
+  //for(auto [tomem, tosize] : tomaps)
+  //  for(auto [frommem, fromsize] : frommaps)
+  //    if(tomem == frommem)
+  //      tofrommaps[tomem] = tosize;
 
-  for(auto [tofrommem, tofromsize] : tofrommaps){
-    tomaps.erase(tofrommem);
-    frommaps.erase(tofrommem);
-  }
+  //for(auto [tofrommem, tofromsize] : tofrommaps){
+  //  tomaps.erase(tofrommem);
+  //  frommaps.erase(tofrommem);
+  //}
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
   if(headerBr->getMetadata("tulip.doall.loop.grid")){
