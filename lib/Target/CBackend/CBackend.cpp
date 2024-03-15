@@ -6801,6 +6801,8 @@ void CWriter::printCmpOperator(ICmpInst *icmp, bool negateCondition){
 }
 
 void CWriter::printInstruction(Instruction *I, bool printSemiColon){
+    if(I->getMetadata("tulip.target.end.of.map")) return;
+    if(I->getMetadata("tulip.target.start.of.map")) return;
     if(CallInst *CI = dyn_cast<CallInst>(I)){
        if(CI->getCalledFunction()->getName() == "cudaMemcpy"){
          return;
@@ -7183,7 +7185,8 @@ if( NATURAL_CONTROL_FLOW ){
   // Output all of the instructions in the basic block...
   for (BasicBlock::iterator II = BB->begin(), E = --BB->end(); II != E; ++II) {
     Instruction* inst = &*II;
-
+    if(inst->getMetadata("tulip.target.start.of.map")) continue;
+    if(inst->getMetadata("tulip.target.end.of.map")) continue;
     if(isSkipableInst(inst)) continue;
 
 
