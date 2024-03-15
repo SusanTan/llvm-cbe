@@ -6396,6 +6396,7 @@ void CWriter::printFunction(Function &F, bool inlineF) {
               //  noneSkipAllocaInsts.insert(alloca);
               if(Argument *arg = dyn_cast<Argument>(valV)){
                 errs() << "SUSAN: found argument 6346: " << *valV << "\n";
+                if(varName == "i" || varName == "j" || varName == "k") continue;
                 if( Var2IRs.find(varName) == Var2IRs.end() )
                   Var2IRs[varName] = std::set<Value*>();
                 Var2IRs[varName].insert(arg);
@@ -7389,6 +7390,8 @@ if( NATURAL_CONTROL_FLOW ){
   // Output all of the instructions in the basic block...
   for (BasicBlock::iterator II = BB->begin(), E = --BB->end(); II != E; ++II) {
     Instruction* inst = &*II;
+    if(inst->getMetadata("tulip.target.start.of.map")) continue;
+    if(inst->getMetadata("tulip.target.end.of.map")) continue;
 
     if(isSkipableInst(inst)) continue;
 
