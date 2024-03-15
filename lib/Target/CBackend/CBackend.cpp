@@ -6798,12 +6798,115 @@ void CWriter::printCmpOperator(ICmpInst *icmp, bool negateCondition){
 }
 
 void CWriter::printInstruction(Instruction *I, bool printSemiColon){
-    if(CallInst *CI = dyn_cast<CallInst>(I)){
-      if(CI->getCalledFunction()->getName() == "cudaMemcpy"){
-        Out << "\n}\n";
-        return;
-      }
+    if(I->getMetadata("tulip.target.end.of.map")){
+      Out << "\n}\n";
+      return;
     }
+    if(I->getMetadata("tulip.target.start.of.map")){
+      Function *F = I->getParent()->getParent();
+      errs() << "CBackend: printing datamap:" << I << "\n";
+      std::map<MDNode*, Instruction*> sizeMDmap;
+      for (inst_iterator ii = inst_begin(F), E = inst_end(F); ii != E; ++ii){
+        if(MDNode* md = &*ii->getMetadata("tulip.target.datasize")){
+          sizeMDmap[md] = &*ii;
+        }
+      }
+      std::map<Value*, Value*> tomaps, frommaps, emptymap, tofrommaps;
+      for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
+        Instruction *inst = &*I;
+        std::map<Value*, Value*> *tmpmap = &emptymap;
+        MDNode *mdTo = nullptr;
+        MDNode *mdFrom = nullptr;
+        MDNode *md = nullptr;
+        Value* ptr = inst;
+        if(inst->getMetadata("tulip.target.mapdata.to") && inst->getMetadata("tulip.target.mapdata.from")){
+          tmpmap = &tofrommaps;
+          mdTo = inst->getMetadata("tulip.target.mapdata.to");
+          mdFrom = inst->getMetadata("tulip.target.mapdata.from");
+        }
+        else if(md = inst->getMetadata("tulip.target.mapdata.to")){
+          tmpmap = &tomaps;
+        }
+        else if(md = inst->getMetadata("tulip.target.mapdata.from")){
+          tmpmap = &frommaps;
+        }
+        if(md){
+          if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (md->getOperand(0))){
+            ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+            (*tmpmap)[ptr] = val;
+          }
+          else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(md->getOperand(0))){
+            (*tmpmap)[ptr] = sizeMDmap[mdSize];
+          }
+        }
+        else if(mdTo && mdFrom){
+          if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdTo->getOperand(0))){
+            ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+            (*tmpmap)[ptr] = val;
+          }
+          else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdTo->getOperand(0))){
+            if(sizeMDmap[mdSize])
+              (*tmpmap)[ptr] = sizeMDmap[mdSize];
+          }
+
+          if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdFrom->getOperand(0))){
+            ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+            (*tmpmap)[ptr] = val;
+          }
+          else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdFrom->getOperand(0))){
+            if(sizeMDmap[mdSize])
+              (*tmpmap)[ptr] = sizeMDmap[mdSize];
+          }
+        }
+      }
+
+      if(!tomaps.empty() || !frommaps.empty() || !tofrommaps.empty()){
+        Out << "#pragma omp target data";
+        if(!tomaps.empty()){
+          Out << " map(to: ";
+          bool printComma = false;
+          for(auto [tomem, tosize] : tomaps){
+            if(printComma) Out << ", ";
+            printComma=true;
+            writeOperandInternal(tomem);
+            Out << "[0:";
+            writeOperandInternal(tosize);
+            Out << "]";
+          }
+          Out << ")";
+        }
+        if(!frommaps.empty()){
+          Out << " map(from: ";
+          bool printComma = false;
+          for(auto [frommem, fromsize] : frommaps){
+            if(printComma) Out << ", ";
+            printComma=true;
+            writeOperandInternal(frommem);
+            Out << "[0:";
+            writeOperandInternal(fromsize);
+            Out << "]";
+          }
+          Out << ")";
+        }
+        if(!tofrommaps.empty()){
+          Out << " map(tofrom: ";
+          bool printComma = false;
+          for(auto [tofrommem, tofromsize] : tofrommaps){
+            if(printComma) Out << ", ";
+            printComma=true;
+            writeOperandInternal(tofrommem);
+            Out << "[0:";
+            writeOperandInternal(tofromsize);
+            Out << "]";
+          }
+          Out << ")";
+        }
+        Out << "\n{\n";
+      }
+      return;
+    }
+
+
     if(omp_SkipVals.find(I) != omp_SkipVals.end()) return;
     if(deadInsts.find(I) != deadInsts.end()) return;
     Out << "  ";
@@ -7140,6 +7243,111 @@ void CWriter::OMP_RecordLiveIns(LoopProfile *LP){
 }
 
 void CWriter::printBasicBlock(BasicBlock *BB, std::set<Value*> skipInsts) {
+  for(auto &I : *BB){
+    if(!I.getMetadata("tulip.target.start.of.map")) continue;
+    errs() << "CBackend: printing datamap:" << I << "\n";
+    skipInsts.insert(&I);
+    std::map<MDNode*, Instruction*> sizeMDmap;
+    Function *F = BB->getParent();
+    for (inst_iterator ii = inst_begin(F), E = inst_end(F); ii != E; ++ii){
+      if(MDNode* md = &*ii->getMetadata("tulip.target.datasize")){
+        sizeMDmap[md] = &*ii;
+      }
+    }
+    std::map<Value*, Value*> tomaps, frommaps, emptymap, tofrommaps;
+    for (inst_iterator I = inst_begin(BB->getParent()), E = inst_end(BB->getParent()); I != E; ++I) {
+      Instruction *inst = &*I;
+      std::map<Value*, Value*> *tmpmap = &emptymap;
+      MDNode *mdTo = nullptr;
+      MDNode *mdFrom = nullptr;
+      MDNode *md = nullptr;
+      Value* ptr = inst;
+      if(inst->getMetadata("tulip.target.mapdata.to") && inst->getMetadata("tulip.target.mapdata.from")){
+        tmpmap = &tofrommaps;
+        mdTo = inst->getMetadata("tulip.target.mapdata.to");
+        mdFrom = inst->getMetadata("tulip.target.mapdata.from");
+      }
+      else if(md = inst->getMetadata("tulip.target.mapdata.to")){
+        tmpmap = &tomaps;
+      }
+      else if(md = inst->getMetadata("tulip.target.mapdata.from")){
+        tmpmap = &frommaps;
+      }
+      if(md){
+        if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (md->getOperand(0))){
+          ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+          (*tmpmap)[ptr] = val;
+        }
+        else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(md->getOperand(0))){
+          (*tmpmap)[ptr] = sizeMDmap[mdSize];
+        }
+      }
+      else if(mdTo && mdFrom){
+        if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdTo->getOperand(0))){
+          ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+          (*tmpmap)[ptr] = val;
+        }
+        else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdTo->getOperand(0))){
+          if(sizeMDmap[mdSize])
+            (*tmpmap)[ptr] = sizeMDmap[mdSize];
+        }
+
+        if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdFrom->getOperand(0))){
+          ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+          (*tmpmap)[ptr] = val;
+        }
+        else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdFrom->getOperand(0))){
+          if(sizeMDmap[mdSize])
+            (*tmpmap)[ptr] = sizeMDmap[mdSize];
+        }
+      }
+    }
+
+    if(!tomaps.empty() || !frommaps.empty() || !tofrommaps.empty()){
+      Out << "#pragma omp target data";
+      if(!tomaps.empty()){
+        Out << " map(to: ";
+        bool printComma = false;
+        for(auto [tomem, tosize] : tomaps){
+          if(printComma) Out << ", ";
+          printComma=true;
+          writeOperandInternal(tomem);
+          Out << "[0:";
+          writeOperandInternal(tosize);
+          Out << "]";
+        }
+        Out << ")";
+      }
+      if(!frommaps.empty()){
+        Out << " map(from: ";
+        bool printComma = false;
+        for(auto [frommem, fromsize] : frommaps){
+          if(printComma) Out << ", ";
+          printComma=true;
+          writeOperandInternal(frommem);
+          Out << "[0:";
+          writeOperandInternal(fromsize);
+          Out << "]";
+        }
+        Out << ")";
+      }
+      if(!tofrommaps.empty()){
+        Out << " map(tofrom: ";
+        bool printComma = false;
+        for(auto [tofrommem, tofromsize] : tofrommaps){
+          if(printComma) Out << ", ";
+          printComma=true;
+          writeOperandInternal(tofrommem);
+          Out << "[0:";
+          writeOperandInternal(tofromsize);
+          Out << "]";
+        }
+        Out << ")";
+      }
+      Out << "\n{\n";
+    }
+
+  }
   errs() << "CBEBackend: printing bb 7082 " << BB->getName() << "\n";
 
 if( NATURAL_CONTROL_FLOW ){
