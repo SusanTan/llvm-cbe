@@ -7385,6 +7385,7 @@ if( NATURAL_CONTROL_FLOW ){
           }
           Out << "\n{\n";
         }
+        continue;
       }
       if(inst->getMetadata("tulip.target.end.of.map")) continue;
 
