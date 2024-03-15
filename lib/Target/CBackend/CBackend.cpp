@@ -7244,111 +7244,6 @@ void CWriter::OMP_RecordLiveIns(LoopProfile *LP){
 }
 
 void CWriter::printBasicBlock(BasicBlock *BB, std::set<Value*> skipInsts) {
-  for(auto &I : *BB){
-    if(!I.getMetadata("tulip.target.start.of.map")) continue;
-    errs() << "CBackend: printing datamap:" << I << "\n";
-    skipInsts.insert(&I);
-    std::map<MDNode*, Instruction*> sizeMDmap;
-    Function *F = BB->getParent();
-    for (inst_iterator ii = inst_begin(F), E = inst_end(F); ii != E; ++ii){
-      if(MDNode* md = &*ii->getMetadata("tulip.target.datasize")){
-        sizeMDmap[md] = &*ii;
-      }
-    }
-    std::map<Value*, Value*> tomaps, frommaps, emptymap, tofrommaps;
-    for (inst_iterator I = inst_begin(BB->getParent()), E = inst_end(BB->getParent()); I != E; ++I) {
-      Instruction *inst = &*I;
-      std::map<Value*, Value*> *tmpmap = &emptymap;
-      MDNode *mdTo = nullptr;
-      MDNode *mdFrom = nullptr;
-      MDNode *md = nullptr;
-      Value* ptr = inst;
-      if(inst->getMetadata("tulip.target.mapdata.to") && inst->getMetadata("tulip.target.mapdata.from")){
-        tmpmap = &tofrommaps;
-        mdTo = inst->getMetadata("tulip.target.mapdata.to");
-        mdFrom = inst->getMetadata("tulip.target.mapdata.from");
-      }
-      else if(md = inst->getMetadata("tulip.target.mapdata.to")){
-        tmpmap = &tomaps;
-      }
-      else if(md = inst->getMetadata("tulip.target.mapdata.from")){
-        tmpmap = &frommaps;
-      }
-      if(md){
-        if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (md->getOperand(0))){
-          ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
-          (*tmpmap)[ptr] = val;
-        }
-        else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(md->getOperand(0))){
-          (*tmpmap)[ptr] = sizeMDmap[mdSize];
-        }
-      }
-      else if(mdTo && mdFrom){
-        if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdTo->getOperand(0))){
-          ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
-          (*tmpmap)[ptr] = val;
-        }
-        else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdTo->getOperand(0))){
-          if(sizeMDmap[mdSize])
-            (*tmpmap)[ptr] = sizeMDmap[mdSize];
-        }
-
-        if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdFrom->getOperand(0))){
-          ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
-          (*tmpmap)[ptr] = val;
-        }
-        else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdFrom->getOperand(0))){
-          if(sizeMDmap[mdSize])
-            (*tmpmap)[ptr] = sizeMDmap[mdSize];
-        }
-      }
-    }
-
-    if(!tomaps.empty() || !frommaps.empty() || !tofrommaps.empty()){
-      Out << "#pragma omp target data";
-      if(!tomaps.empty()){
-        Out << " map(to: ";
-        bool printComma = false;
-        for(auto [tomem, tosize] : tomaps){
-          if(printComma) Out << ", ";
-          printComma=true;
-          writeOperandInternal(tomem);
-          Out << "[0:";
-          writeOperandInternal(tosize);
-          Out << "]";
-        }
-        Out << ")";
-      }
-      if(!frommaps.empty()){
-        Out << " map(from: ";
-        bool printComma = false;
-        for(auto [frommem, fromsize] : frommaps){
-          if(printComma) Out << ", ";
-          printComma=true;
-          writeOperandInternal(frommem);
-          Out << "[0:";
-          writeOperandInternal(fromsize);
-          Out << "]";
-        }
-        Out << ")";
-      }
-      if(!tofrommaps.empty()){
-        Out << " map(tofrom: ";
-        bool printComma = false;
-        for(auto [tofrommem, tofromsize] : tofrommaps){
-          if(printComma) Out << ", ";
-          printComma=true;
-          writeOperandInternal(tofrommem);
-          Out << "[0:";
-          writeOperandInternal(tofromsize);
-          Out << "]";
-        }
-        Out << ")";
-      }
-      Out << "\n{\n";
-    }
-
-  }
   errs() << "CBEBackend: printing bb 7082 " << BB->getName() << "\n";
 
 if( NATURAL_CONTROL_FLOW ){
@@ -7390,77 +7285,177 @@ if( NATURAL_CONTROL_FLOW ){
   // Output all of the instructions in the basic block...
   for (BasicBlock::iterator II = BB->begin(), E = --BB->end(); II != E; ++II) {
     Instruction* inst = &*II;
-    if(inst->getMetadata("tulip.target.start.of.map")) continue;
-    if(inst->getMetadata("tulip.target.end.of.map")) continue;
-
-    if(isSkipableInst(inst)) continue;
-
-
-    /*
-     * OpenMP: translate omp master
-     */
-    if(CallInst* CI = dyn_cast<CallInst>(inst)){
-      if(Function *ompCall = CI->getCalledFunction()){
-        if(ompCall->getName().contains("__kmpc_master")){
-          Out << "#pragma omp master\n{\n";
-          continue;
+    if(inst->getMetadata("tulip.target.start.of.map")){
+        std::map<MDNode*, Instruction*> sizeMDmap;
+        Function *F = BB->getParent();
+        for (inst_iterator ii = inst_begin(F), E = inst_end(F); ii != E; ++ii){
+          if(MDNode* md = &*ii->getMetadata("tulip.target.datasize")){
+            sizeMDmap[md] = &*ii;
+          }
         }
-        if(ompCall->getName().contains("__kmpc_end_master")){
-          Out << "}\n";
-          continue;
+        std::map<Value*, Value*> tomaps, frommaps, emptymap, tofrommaps;
+        for (inst_iterator I = inst_begin(BB->getParent()), E = inst_end(BB->getParent()); I != E; ++I) {
+          Instruction *inst = &*I;
+          std::map<Value*, Value*> *tmpmap = &emptymap;
+          MDNode *mdTo = nullptr;
+          MDNode *mdFrom = nullptr;
+          MDNode *md = nullptr;
+          Value* ptr = inst;
+          if(inst->getMetadata("tulip.target.mapdata.to") && inst->getMetadata("tulip.target.mapdata.from")){
+            tmpmap = &tofrommaps;
+            mdTo = inst->getMetadata("tulip.target.mapdata.to");
+            mdFrom = inst->getMetadata("tulip.target.mapdata.from");
+          }
+          else if(md = inst->getMetadata("tulip.target.mapdata.to")){
+            tmpmap = &tomaps;
+          }
+          else if(md = inst->getMetadata("tulip.target.mapdata.from")){
+            tmpmap = &frommaps;
+          }
+          if(md){
+            if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (md->getOperand(0))){
+              ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+              (*tmpmap)[ptr] = val;
+            }
+            else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(md->getOperand(0))){
+              (*tmpmap)[ptr] = sizeMDmap[mdSize];
+            }
+          }
+          else if(mdTo && mdFrom){
+            if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdTo->getOperand(0))){
+              ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+              (*tmpmap)[ptr] = val;
+            }
+            else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdTo->getOperand(0))){
+              if(sizeMDmap[mdSize])
+                (*tmpmap)[ptr] = sizeMDmap[mdSize];
+            }
+
+            if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdFrom->getOperand(0))){
+              ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
+              (*tmpmap)[ptr] = val;
+            }
+            else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdFrom->getOperand(0))){
+              if(sizeMDmap[mdSize])
+                (*tmpmap)[ptr] = sizeMDmap[mdSize];
+            }
+          }
+        }
+
+        if(!tomaps.empty() || !frommaps.empty() || !tofrommaps.empty()){
+          Out << "#pragma omp target data";
+          if(!tomaps.empty()){
+            Out << " map(to: ";
+            bool printComma = false;
+            for(auto [tomem, tosize] : tomaps){
+              if(printComma) Out << ", ";
+              printComma=true;
+              writeOperandInternal(tomem);
+              Out << "[0:";
+              writeOperandInternal(tosize);
+              Out << "]";
+            }
+            Out << ")";
+          }
+          if(!frommaps.empty()){
+            Out << " map(from: ";
+            bool printComma = false;
+            for(auto [frommem, fromsize] : frommaps){
+              if(printComma) Out << ", ";
+              printComma=true;
+              writeOperandInternal(frommem);
+              Out << "[0:";
+              writeOperandInternal(fromsize);
+              Out << "]";
+            }
+            Out << ")";
+          }
+          if(!tofrommaps.empty()){
+            Out << " map(tofrom: ";
+            bool printComma = false;
+            for(auto [tofrommem, tofromsize] : tofrommaps){
+              if(printComma) Out << ", ";
+              printComma=true;
+              writeOperandInternal(tofrommem);
+              Out << "[0:";
+              writeOperandInternal(tofromsize);
+              Out << "]";
+            }
+            Out << ")";
+          }
+          Out << "\n{\n";
         }
       }
-    }
+      if(inst->getMetadata("tulip.target.end.of.map")) continue;
 
-    //if(noneSkipAllocaInsts.find(&*II) != noneSkipAllocaInsts.end()){
-    //  AllocaInst *alloca = dyn_cast<AllocaInst>(&*II);
-    //  PointerType *ptrTy = dyn_cast<PointerType>(II->getType());
-    //  if(ptrTy){
-    //    errs() << "SUSAN: printing type name at 7200 " << *alloca << "\n";
-    //    printTypeName(Out, ptrTy->getPointerElementType(), false) << ' ';
-    //  }
-    //  Out << GetValueName(&*II);
+      if(isSkipableInst(inst)) continue;
 
-    //  Type *currTy = alloca->getAllocatedType();
-    //  while(ArrayType *arrTy = dyn_cast<ArrayType>(currTy)){
-    //    Out << '[' << arrTy->getNumElements() << ']';
-    //    currTy = arrTy->getElementType();
-    //  }
-    //  Out << ";\n";
-    //} else
-    if (!isInlinableInst(*II)) {
-      errs() << "SUSAN: printing instruction " << *II << " at 6678\n";
-      if (!isEmptyType(II->getType()) || isa<StoreInst>(&*II))
-        Out << "  ";
 
-      if ((&*II)->user_begin() != (&*II)->user_end() && !isEmptyType(II->getType()) && !isInlineAsm(*II)) {
-        auto varName = GetValueName(&*II);
-        if(declaredLocals.find(varName) == declaredLocals.end()
-          && omp_declaredLocals.find(varName) == omp_declaredLocals.end()){
-          auto varName = GetValueName(&*II, true);
-          auto typeName = II->getType();
-          for(auto [argInput, type] : type2declare){
-            auto argInputName = GetValueName(argInput);
-            if(argInputName == varName)
-              typeName = type;
+      /*
+       * OpenMP: translate omp master
+       */
+      if(CallInst* CI = dyn_cast<CallInst>(inst)){
+        if(Function *ompCall = CI->getCalledFunction()){
+          if(ompCall->getName().contains("__kmpc_master")){
+            Out << "#pragma omp master\n{\n";
+            continue;
           }
-          if(mallocType.find(&*II) != mallocType.end()){
-            typeName = mallocType[&*II];
+          if(ompCall->getName().contains("__kmpc_end_master")){
+            Out << "}\n";
+            continue;
           }
-          printTypeName(Out, typeName, false) << ' ';
-          errs() << "SUSAN: printing varname 7310: " << varName << "\n";
-          if(!IS_OPENMP_FUNCTION)
-            declaredLocals.insert(varName);
-          else
-            omp_declaredLocals.insert(varName);
         }
-        Out << varName << " = ";
       }
-      writeInstComputationInline(*II);
 
-      if (!isEmptyType(II->getType()) || isa<StoreInst>(&*II))
-        Out << ";\n";
-    }
+      //if(noneSkipAllocaInsts.find(&*II) != noneSkipAllocaInsts.end()){
+      //  AllocaInst *alloca = dyn_cast<AllocaInst>(&*II);
+      //  PointerType *ptrTy = dyn_cast<PointerType>(II->getType());
+      //  if(ptrTy){
+      //    errs() << "SUSAN: printing type name at 7200 " << *alloca << "\n";
+      //    printTypeName(Out, ptrTy->getPointerElementType(), false) << ' ';
+      //  }
+      //  Out << GetValueName(&*II);
+
+      //  Type *currTy = alloca->getAllocatedType();
+      //  while(ArrayType *arrTy = dyn_cast<ArrayType>(currTy)){
+      //    Out << '[' << arrTy->getNumElements() << ']';
+      //    currTy = arrTy->getElementType();
+      //  }
+      //  Out << ";\n";
+      //} else
+      if (!isInlinableInst(*II)) {
+        errs() << "SUSAN: printing instruction " << *II << " at 6678\n";
+        if (!isEmptyType(II->getType()) || isa<StoreInst>(&*II))
+          Out << "  ";
+
+        if ((&*II)->user_begin() != (&*II)->user_end() && !isEmptyType(II->getType()) && !isInlineAsm(*II)) {
+          auto varName = GetValueName(&*II);
+          if(declaredLocals.find(varName) == declaredLocals.end()
+            && omp_declaredLocals.find(varName) == omp_declaredLocals.end()){
+            auto varName = GetValueName(&*II, true);
+            auto typeName = II->getType();
+            for(auto [argInput, type] : type2declare){
+              auto argInputName = GetValueName(argInput);
+              if(argInputName == varName)
+                typeName = type;
+            }
+            if(mallocType.find(&*II) != mallocType.end()){
+              typeName = mallocType[&*II];
+            }
+            printTypeName(Out, typeName, false) << ' ';
+            errs() << "SUSAN: printing varname 7310: " << varName << "\n";
+            if(!IS_OPENMP_FUNCTION)
+              declaredLocals.insert(varName);
+            else
+              omp_declaredLocals.insert(varName);
+          }
+          Out << varName << " = ";
+        }
+        writeInstComputationInline(*II);
+
+        if (!isEmptyType(II->getType()) || isa<StoreInst>(&*II))
+          Out << ";\n";
+      }
   }
 
   ////check if a phi value need to be printed
