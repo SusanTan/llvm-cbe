@@ -262,13 +262,13 @@ void LoopRegion::printRegionDAG(){
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
   if(headerBr->getMetadata("tulip.doall.loop.grid"))
-    cw->Out << "#pragma omp target teams distribute parallel for\n";
+    cw->Out << "#pragma omp target teams distribute\n";
   else if(headerBr->getMetadata("tulip.doall.loop.grid.collapse"))
-    cw->Out << "#pragma omp target teams distribute parallel for collapse(2)\n";
-  ///else if(headerBr->getMetadata("tulip.doall.loop.block"))
-  ///  cw->Out << "#pragma omp target teams distribute parallel for\n";
-  ///else if(headerBr->getMetadata("tulip.doall.loop.block.collapse"))
-  ///  cw->Out << "#pragma omp target teams distribute parallel for collapse(2)\n";
+    cw->Out << "#pragma omp target teams distribute collapse(2)\n";
+  else if(headerBr->getMetadata("tulip.doall.loop.block"))
+    cw->Out << "#pragma omp parallel for\n";
+  else if(headerBr->getMetadata("tulip.doall.loop.block.collapse"))
+    cw->Out << "#pragma omp parallel for collapse(2)\n";
   else if(headerBr->getMetadata("noelle.doall.loop")){
     bool addpragma = true;
     for (BasicBlock *BB : loop->getBlocks())
