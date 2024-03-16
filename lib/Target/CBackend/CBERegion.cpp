@@ -262,137 +262,18 @@ void LoopRegion::printRegionDAG(){
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
   if(headerBr->getMetadata("tulip.doall.loop.grid"))
-    cw->Out << "#pragma omp target teams distribute parallel for\n";
-  else if(headerBr->getMetadata("noelle.doall.loop")){
-    bool addpragma = true;
-    for (BasicBlock *BB : loop->getBlocks())
-      for(auto &I : *BB)
-        if(I.getMetadata("tulip.reduce.add") || I.getMetadata("tulip.arr.reduce.add"))
-          addpragma = false;
-    if(addpragma)
-      cw->Out << "#pragma omp parallel for ";
-  }
-  //find all the metadatas for offlaoding
-//  Function* F = header->getParent();
-//  std::map<MDNode*, Instruction*> sizeMDmap;
-//  for (inst_iterator ii = inst_begin(F), E = inst_end(F); ii != E; ++ii){
-//    if(MDNode* md = &*ii->getMetadata("tulip.target.datasize")){
-//      sizeMDmap[md] = &*ii;
-//    }
-//  }
-//
-//  std::map<Value*, Value*> tomaps, frommaps, emptymap, tofrommaps;
-//  for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
-//    errs() << "SUSAN: extract data mapping metadata from " << *I << "\n";
-//    Instruction *inst = &*I;
-//    std::map<Value*, Value*> *tmpmap = &emptymap;
-//    MDNode *mdTo = nullptr;
-//    MDNode *mdFrom = nullptr;
-//    MDNode *md = nullptr;
-//    Value* ptr = inst;
-//    if(inst->getMetadata("tulip.target.mapdata.to") && inst->getMetadata("tulip.target.mapdata.from")){
-//      tmpmap = &tofrommaps;
-//      mdTo = inst->getMetadata("tulip.target.mapdata.to");
-//      mdFrom = inst->getMetadata("tulip.target.mapdata.from");
-//      inst->setMetadata("tulip.target.mapdata.to", NULL);
-//      inst->setMetadata("tulip.target.mapdata.from", NULL);
-//    }
-//    else if(md = inst->getMetadata("tulip.target.mapdata.to")){
-//      tmpmap = &tomaps;
-//      inst->setMetadata("tulip.target.mapdata.to", NULL);
-//    }
-//    else if(md = inst->getMetadata("tulip.target.mapdata.from")){
-//      tmpmap = &frommaps;
-//      inst->setMetadata("tulip.target.mapdata.from", NULL);
-//    }
-//    if(md){
-//      if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (md->getOperand(0))){
-//        ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
-//        (*tmpmap)[ptr] = val;
-//      }
-//      else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(md->getOperand(0))){
-//        (*tmpmap)[ptr] = sizeMDmap[mdSize];
-//      }
-//    }
-//    else if(mdTo && mdFrom){
-//      if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdTo->getOperand(0))){
-//        ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
-//        (*tmpmap)[ptr] = val;
-//      }
-//      else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdTo->getOperand(0))){
-//        if(sizeMDmap[mdSize])
-//          (*tmpmap)[ptr] = sizeMDmap[mdSize];
-//      }
-//
-//      if(ConstantAsMetadata *constMD = dyn_cast<ConstantAsMetadata> (mdFrom->getOperand(0))){
-//        ConstantInt *val = dyn_cast_or_null<ConstantInt>(constMD->getValue());
-//        (*tmpmap)[ptr] = val;
-//      }
-//      else if(MDNode* mdSize = dyn_cast_or_null<MDNode>(mdFrom->getOperand(0))){
-//        if(sizeMDmap[mdSize])
-//          (*tmpmap)[ptr] = sizeMDmap[mdSize];
-//      }
-//    }
-//  }
-//
-//  //for(auto [tomem, tosize] : tomaps)
-//  //  for(auto [frommem, fromsize] : frommaps)
-//  //    if(tomem == frommem)
-//  //      tofrommaps[tomem] = tosize;
-//
-//  //for(auto [tofrommem, tofromsize] : tofrommaps){
-//  //  tomaps.erase(tofrommem);
-//  //  frommaps.erase(tofrommem);
-//  //}
-//
-//  auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
-//  if(headerBr->getMetadata("tulip.doall.loop.grid")){
-//    if(!tomaps.empty() || !frommaps.empty() || !tofrommaps.empty()){
-//      cw->Out << "#pragma omp target data";
-//      if(!tomaps.empty()){
-//        cw->Out << " map(to: ";
-//        bool printComma = false;
-//        for(auto [tomem, tosize] : tomaps){
-//          if(printComma) cw->Out << ", ";
-//          printComma=true;
-//          cw->writeOperandInternal(tomem);
-//          cw->Out << "[0:";
-//          cw->writeOperandInternal(tosize);
-//          cw->Out << "]";
-//        }
-//        cw->Out << ")";
-//      }
-//      if(!frommaps.empty()){
-//        cw->Out << " map(from: ";
-//        bool printComma = false;
-//        for(auto [frommem, fromsize] : frommaps){
-//          if(printComma) cw->Out << ", ";
-//          printComma=true;
-//          cw->writeOperandInternal(frommem);
-//          cw->Out << "[0:";
-//          cw->writeOperandInternal(fromsize);
-//          cw->Out << "]";
-//        }
-//        cw->Out << ")";
-//      }
-//      if(!tofrommaps.empty()){
-//        cw->Out << " map(tofrom: ";
-//        bool printComma = false;
-//        for(auto [tofrommem, tofromsize] : tofrommaps){
-//          if(printComma) cw->Out << ", ";
-//          printComma=true;
-//          cw->writeOperandInternal(tofrommem);
-//          cw->Out << "[0:";
-//          cw->writeOperandInternal(tofromsize);
-//          cw->Out << "]";
-//        }
-//        cw->Out << ")";
-//      }
-//      cw->Out << "\n{\n";
-//    }
-//    cw->Out << "#pragma omp target teams distribute parallel for\n";
-//  }
-
+    cw->Out << "#pragma acc parallel loop gang\n";
+  else if(headerBr->getMetadata("tulip.doall.loop.block"))
+    cw->Out << "#pragma acc loop worker\n";
+  //else if(headerBr->getMetadata("noelle.doall.loop")){
+  //  bool addpragma = true;
+  //  for (BasicBlock *BB : loop->getBlocks())
+  //    for(auto &I : *BB)
+  //      if(I.getMetadata("tulip.reduce.add") || I.getMetadata("tulip.arr.reduce.add"))
+  //        addpragma = false;
+  //  if(addpragma)
+  //    cw->Out << "#pragma omp parallel for ";
+  //}
 
   cw->Out << "\nfor(";
 

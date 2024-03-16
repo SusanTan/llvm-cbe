@@ -6862,9 +6862,9 @@ void CWriter::printInstruction(Instruction *I, bool printSemiColon){
       }
 
       if(!tomaps.empty() || !frommaps.empty() || !tofrommaps.empty()){
-        Out << "#pragma omp target data";
-        if(!tomaps.empty()){
-          Out << " map(to: ";
+        Out << "#pragma acc data";
+        if(!tomaps.empty() || !tofrommaps.empty()){
+          Out << " pcopyin(";
           bool printComma = false;
           for(auto [tomem, tosize] : tomaps){
             if(printComma) Out << ", ";
@@ -6874,10 +6874,18 @@ void CWriter::printInstruction(Instruction *I, bool printSemiColon){
             writeOperandInternal(tosize);
             Out << "]";
           }
+          for(auto [tomem, tosize] : tofrommaps){
+            if(printComma) Out << ", ";
+            printComma=true;
+            writeOperandInternal(tomem);
+            Out << "[0:";
+            writeOperandInternal(tosize);
+            Out << "]";
+          }
           Out << ")";
         }
-        if(!frommaps.empty()){
-          Out << " map(from: ";
+        if(!frommaps.empty() || !tofrommaps.empty()){
+          Out << " copyout(";
           bool printComma = false;
           for(auto [frommem, fromsize] : frommaps){
             if(printComma) Out << ", ";
@@ -6887,17 +6895,12 @@ void CWriter::printInstruction(Instruction *I, bool printSemiColon){
             writeOperandInternal(fromsize);
             Out << "]";
           }
-          Out << ")";
-        }
-        if(!tofrommaps.empty()){
-          Out << " map(tofrom: ";
-          bool printComma = false;
-          for(auto [tofrommem, tofromsize] : tofrommaps){
+          for(auto [tomem, tosize] : tofrommaps){
             if(printComma) Out << ", ";
             printComma=true;
-            writeOperandInternal(tofrommem);
+            writeOperandInternal(tomem);
             Out << "[0:";
-            writeOperandInternal(tofromsize);
+            writeOperandInternal(tosize);
             Out << "]";
           }
           Out << ")";
