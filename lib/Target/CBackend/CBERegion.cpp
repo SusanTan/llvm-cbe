@@ -272,12 +272,10 @@ void LoopRegion::printRegionDAG(){
   //  }
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
-  if(headerBr->getMetadata("tulip.doall.loop.grid") ||
-      headerBr->getMetadata("noelle.doall.loop")){
-    cw->Out << "#pragma omp parallel for ";
-  }
-  else if(headerBr->getMetadata("tulip.doall.loop.grid.collapse"))
+  if(headerBr->getMetadata("tulip.doall.loop.grid.collapse"))
     cw->Out << "#pragma omp parallel for collapse(2)";
+  else if(headerBr->getMetadata("noelle.doall.loop"))
+    cw->Out << "#pragma omp parallel for ";
 
   for (BasicBlock *BB : loop->getBlocks()){
     for(auto &I : *BB){
