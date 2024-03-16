@@ -276,6 +276,8 @@ void LoopRegion::printRegionDAG(){
       headerBr->getMetadata("noelle.doall.loop")){
     cw->Out << "#pragma omp parallel for ";
   }
+  else if(headerBr->getMetadata("tulip.doall.loop.grid.collapse"))
+    cw->Out << "#pragma omp parallel for collapse(2)";
 
   for (BasicBlock *BB : loop->getBlocks()){
     for(auto &I : *BB){
