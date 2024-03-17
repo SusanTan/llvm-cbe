@@ -274,32 +274,45 @@ void LoopRegion::printRegionDAG(){
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
   if(headerBr->getMetadata("tulip.doall.loop.grid.collapse"))
     cw->Out << "#pragma omp parallel for collapse(2)";
-  else if(headerBr->getMetadata("noelle.doall.loop"))
-    cw->Out << "#pragma omp parallel for ";
-
-  for (BasicBlock *BB : loop->getBlocks()){
-    for(auto &I : *BB){
-      if(I.getMetadata("tulip.reduce.add")){
-        cw->Out << "reduction(+:";
-        cw->writeOperand(&I);
-        cw->Out << ")";
-      }
-      else if(I.getMetadata("tulip.arr.reduce.add")){
-        cw->Out << "reduction(+:";
-        GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&I);
-        Value *ptr = gep->getPointerOperand();
-        cw->Out<<cw->GetValueName(ptr);
-        PointerType *ptrTy = dyn_cast<PointerType>(ptr->getType());
-        cw->Out << "[0:";
-        assert(ptrTy && "CBERegion: not a pointer type? 288\n");
-        ArrayType* arrTy = dyn_cast<ArrayType>(ptrTy->getPointerElementType());
-        assert(arrTy && "CBERegion: not an array type? 290\n");
-        cw->Out << arrTy->getNumElements();
-        cw->Out << "]";
-        cw->Out << ")";
+  else if(headerBr->getMetadata("noelle.doall.loop")){
+    bool printReduction = false;
+    for (BasicBlock *BB : loop->getBlocks()){
+      for(auto &I : *BB){
+        if(I.getMetadata("tulip.reduce.add")){
+          printReduction = true;
+          cw->Out << "#pragma omp simd reduction(+:";
+          cw->writeOperand(&I);
+          cw->Out << ")";
+        }
       }
     }
+    if(!printReduction)
+      cw->Out << "#pragma omp parallel for ";
   }
+
+  //for (BasicBlock *BB : loop->getBlocks()){
+  //  for(auto &I : *BB){
+  //    if(I.getMetadata("tulip.reduce.add")){
+  //      cw->Out << "#pragma omp simd reduction(+:";
+  //      cw->writeOperand(&I);
+  //      cw->Out << ")";
+  //    }
+  //    else if(I.getMetadata("tulip.arr.reduce.add")){
+  //      cw->Out << "#pragma omp simd reduction(+:";
+  //      GetElementPtrInst *gep = dyn_cast<GetElementPtrInst>(&I);
+  //      Value *ptr = gep->getPointerOperand();
+  //      cw->Out<<cw->GetValueName(ptr);
+  //      PointerType *ptrTy = dyn_cast<PointerType>(ptr->getType());
+  //      cw->Out << "[0:";
+  //      assert(ptrTy && "CBERegion: not a pointer type? 288\n");
+  //      ArrayType* arrTy = dyn_cast<ArrayType>(ptrTy->getPointerElementType());
+  //      assert(arrTy && "CBERegion: not an array type? 290\n");
+  //      cw->Out << arrTy->getNumElements();
+  //      cw->Out << "]";
+  //      cw->Out << ")";
+  //    }
+  //  }
+  //}
 
   cw->Out << "\nfor(";
 
