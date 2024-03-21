@@ -259,21 +259,22 @@ void LoopRegion::printRegionDAG(){
     errs() << "SUSAN: printing condRelatedInst: " << *inst << "\n";
     cw->printInstruction(inst);
   }
-  //Hailong Jiang
-  //To print parallelized loop
-  //errs() << "Hailong: To print parallelized loop \n";
-  //for (BasicBlock *BB : loop->getBlocks()){
-  //        Instruction *term = BB->getTerminator();
-  //        BranchInst *br = dyn_cast<BranchInst>(term);
-  //        if(br->getMetadata("splendid.parallelized.loop")){
-  //          cw->Out << "#pragma omp parallel for \n";
-  //          errs() << "Hailong: print '#pragma omp parallel for' ";
-  //        }
-  //  }
 
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
   if(headerBr->getMetadata("tulip.doall.loop.grid.collapse"))
     cw->Out << "#pragma omp parallel for collapse(2)";
+  else if(headerBr->getMetadata("tulip.doall.loop.grid")){
+    bool printCollapse = false;
+    for (BasicBlock *BB : loop->getBlocks()){
+      if(BB->getTerminator()->getMetadata("tulip.doall.loop.block")){
+        cw->Out << "#pragma omp parallel for collapse(2)";
+        printCollapse = true;
+        break;
+      }
+    }
+    if(!printCollapse)
+      cw->Out << "#pragma omp parallel for";
+  }
   else if(headerBr->getMetadata("noelle.doall.loop")){
     bool printReduction = false;
     for (BasicBlock *BB : loop->getBlocks()){
