@@ -8316,6 +8316,11 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
     }
     if(!foldedConstant && (I.getOpcode() == Instruction::Add
         || I.getOpcode() == Instruction::FAdd
+        || I.getOpcode() == Instruction::Mul
+        || I.getOpcode() == Instruction::FMul
+        || I.getOpcode() == Instruction::SDiv
+        || I.getOpcode() == Instruction::UDiv
+        || I.getOpcode() == Instruction::FDiv
         || I.getOpcode() == Instruction::Sub
         || I.getOpcode() == Instruction::FSub
         || I.getOpcode() == Instruction::Shl
@@ -8371,6 +8376,11 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
 
     writeOperandWithCast(I.getOperand(1), I.getOpcode());
     if(I.getOpcode() == Instruction::Add
+        || I.getOpcode() == Instruction::Mul
+        || I.getOpcode() == Instruction::FMul
+        || I.getOpcode() == Instruction::SDiv
+        || I.getOpcode() == Instruction::UDiv
+        || I.getOpcode() == Instruction::FDiv
         || I.getOpcode() == Instruction::FAdd
         || I.getOpcode() == Instruction::Sub
         || I.getOpcode() == Instruction::FSub
