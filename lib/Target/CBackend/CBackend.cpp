@@ -4452,8 +4452,7 @@ void CWriter::generateHeader(Module &M) {
   OutHeaders << "#include <stdio.h>\n"; //
   OutHeaders << "#include <stdlib.h>\n";
   OutHeaders << "#include <string.h>\n";
-  if (headerIncMath())
-    OutHeaders << "#include <math.h>\n";
+  OutHeaders << "#include <math.h>\n";
   // Provide a definition for `bool' if not compiling with a C++ compiler.
   OutHeaders << "#ifndef __cplusplus\ntypedef unsigned char bool;\n#endif\n";
   OutHeaders << "\n";
