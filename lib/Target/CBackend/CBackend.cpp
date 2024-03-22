@@ -4452,8 +4452,7 @@ void CWriter::generateHeader(Module &M) {
   OutHeaders << "#include <stdio.h>\n"; //
   OutHeaders << "#include <stdlib.h>\n";
   OutHeaders << "#include <string.h>\n";
-  if (headerIncMath())
-    OutHeaders << "#include <math.h>\n";
+  OutHeaders << "#include <math.h>\n";
   // Provide a definition for `bool' if not compiling with a C++ compiler.
   OutHeaders << "#ifndef __cplusplus\ntypedef unsigned char bool;\n#endif\n";
   OutHeaders << "\n";
@@ -6387,6 +6386,8 @@ void CWriter::printFunction(Function &F, bool inlineF) {
             || F->getIntrinsicID() == Intrinsic::dbg_declare){
             Metadata *valMeta = cast<MetadataAsValue>(CI->getOperand(0))->getMetadata();
             Metadata *varMeta = cast<MetadataAsValue>(CI->getOperand(1))->getMetadata();
+            DIExpression *expr = dyn_cast<DIExpression>(cast<MetadataAsValue>(CI->getOperand(2))->getMetadata());
+            if(expr && expr->getNumElements() > 0) continue;
             DILocalVariable *var = dyn_cast<DILocalVariable>(varMeta);
             assert(var && "SUSAN: 2nd argument of llvm.dbg.value is not DILocalVariable?\n");
             std::string varName = var->getName().str();
@@ -8318,6 +8319,11 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
         }
     }
     if(!foldedConstant && (I.getOpcode() == Instruction::Add
+        || I.getOpcode() == Instruction::Mul
+        || I.getOpcode() == Instruction::FMul
+        || I.getOpcode() == Instruction::SDiv
+        || I.getOpcode() == Instruction::UDiv
+        || I.getOpcode() == Instruction::FDiv
         || I.getOpcode() == Instruction::FAdd
         || I.getOpcode() == Instruction::Sub
         || I.getOpcode() == Instruction::FSub
@@ -8375,6 +8381,11 @@ void CWriter::visitBinaryOperator(BinaryOperator &I) {
     writeOperandWithCast(I.getOperand(1), I.getOpcode());
     if(I.getOpcode() == Instruction::Add
         || I.getOpcode() == Instruction::FAdd
+        || I.getOpcode() == Instruction::Mul
+        || I.getOpcode() == Instruction::FMul
+        || I.getOpcode() == Instruction::SDiv
+        || I.getOpcode() == Instruction::UDiv
+        || I.getOpcode() == Instruction::FDiv
         || I.getOpcode() == Instruction::Sub
         || I.getOpcode() == Instruction::FSub
         || I.getOpcode() == Instruction::Shl
