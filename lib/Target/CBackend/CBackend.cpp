@@ -6387,6 +6387,8 @@ void CWriter::printFunction(Function &F, bool inlineF) {
             || F->getIntrinsicID() == Intrinsic::dbg_declare){
             Metadata *valMeta = cast<MetadataAsValue>(CI->getOperand(0))->getMetadata();
             Metadata *varMeta = cast<MetadataAsValue>(CI->getOperand(1))->getMetadata();
+            DIExpression *expr = dyn_cast<DIExpression>(cast<MetadataAsValue>(CI->getOperand(2))->getMetadata());
+            if(expr && expr->getNumElements() > 0) continue;
             DILocalVariable *var = dyn_cast<DILocalVariable>(varMeta);
             assert(var && "SUSAN: 2nd argument of llvm.dbg.value is not DILocalVariable?\n");
             std::string varName = var->getName().str();
