@@ -6865,7 +6865,7 @@ void CWriter::printInstruction(Instruction *I, bool printSemiColon){
       if(!tomaps.empty() || !frommaps.empty() || !tofrommaps.empty()){
         Out << "#pragma acc data";
         if(!tomaps.empty() || !tofrommaps.empty()){
-          Out << " pcopyin(";
+          Out << " copy(";
           bool printComma = false;
           for(auto [tomem, tosize] : tomaps){
             if(printComma) Out << ", ";
@@ -6885,27 +6885,27 @@ void CWriter::printInstruction(Instruction *I, bool printSemiColon){
           }
           Out << ")";
         }
-        if(!frommaps.empty() || !tofrommaps.empty()){
-          Out << " copyout(";
-          bool printComma = false;
-          for(auto [frommem, fromsize] : frommaps){
-            if(printComma) Out << ", ";
-            printComma=true;
-            writeOperandInternal(frommem);
-            Out << "[0:";
-            writeOperandInternal(fromsize);
-            Out << "]";
-          }
-          for(auto [tomem, tosize] : tofrommaps){
-            if(printComma) Out << ", ";
-            printComma=true;
-            writeOperandInternal(tomem);
-            Out << "[0:";
-            writeOperandInternal(tosize);
-            Out << "]";
-          }
-          Out << ")";
-        }
+        //if(!frommaps.empty() || !tofrommaps.empty()){
+        //  Out << " copyout(";
+        //  bool printComma = false;
+        //  for(auto [frommem, fromsize] : frommaps){
+        //    if(printComma) Out << ", ";
+        //    printComma=true;
+        //    writeOperandInternal(frommem);
+        //    Out << "[0:";
+        //    writeOperandInternal(fromsize);
+        //    Out << "]";
+        //  }
+        //  for(auto [tomem, tosize] : tofrommaps){
+        //    if(printComma) Out << ", ";
+        //    printComma=true;
+        //    writeOperandInternal(tomem);
+        //    Out << "[0:";
+        //    writeOperandInternal(tosize);
+        //    Out << "]";
+        //  }
+        //  Out << ")";
+        //}
         Out << "\n{\n";
       }
       return;

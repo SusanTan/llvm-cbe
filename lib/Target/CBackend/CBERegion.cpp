@@ -263,11 +263,11 @@ void LoopRegion::printRegionDAG(){
   auto headerBr = dyn_cast<BranchInst>(header->getTerminator());
   if(headerBr->getMetadata("tulip.doall.loop.grid"))
     cw->Out << "#pragma acc parallel loop gang\n";
-  else if(headerBr->getMetadata("tulip.doall.loop.block.collapse"))
+  else if(headerBr->getMetadata("tulip.doall.loop.grid.collapse"))
     cw->Out << "#pragma acc parallel loop gang collapse(2)\n";
   else if(headerBr->getMetadata("tulip.doall.loop.block"))
     cw->Out << "#pragma acc loop worker\n";
-  else if(headerBr->getMetadata("tulip.doall.loop.grid.collapse"))
+  else if(headerBr->getMetadata("tulip.doall.loop.block.collapse"))
     cw->Out << "#pragma acc loop worker collapse(2)\n";
   //else if(headerBr->getMetadata("noelle.doall.loop")){
   //  bool addpragma = true;
