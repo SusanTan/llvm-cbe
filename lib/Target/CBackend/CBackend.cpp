@@ -6885,27 +6885,6 @@ void CWriter::printInstruction(Instruction *I, bool printSemiColon){
           }
           Out << ")";
         }
-        //if(!frommaps.empty() || !tofrommaps.empty()){
-        //  Out << " copyout(";
-        //  bool printComma = false;
-        //  for(auto [frommem, fromsize] : frommaps){
-        //    if(printComma) Out << ", ";
-        //    printComma=true;
-        //    writeOperandInternal(frommem);
-        //    Out << "[0:";
-        //    writeOperandInternal(fromsize);
-        //    Out << "]";
-        //  }
-        //  for(auto [tomem, tosize] : tofrommaps){
-        //    if(printComma) Out << ", ";
-        //    printComma=true;
-        //    writeOperandInternal(tomem);
-        //    Out << "[0:";
-        //    writeOperandInternal(tosize);
-        //    Out << "]";
-        //  }
-        //  Out << ")";
-        //}
         Out << "\n{\n";
       }
       return;
@@ -7346,49 +7325,31 @@ if( NATURAL_CONTROL_FLOW ){
           }
         }
 
-        if(!tomaps.empty() || !frommaps.empty() || !tofrommaps.empty()){
-          Out << "#pragma omp target data";
-          if(!tomaps.empty()){
-            Out << " map(to: ";
-            bool printComma = false;
-            for(auto [tomem, tosize] : tomaps){
-              if(printComma) Out << ", ";
-              printComma=true;
-              writeOperandInternal(tomem);
-              Out << "[0:";
-              writeOperandInternal(tosize);
-              Out << "]";
-            }
-            Out << ")";
+      if(!tomaps.empty() || !frommaps.empty() || !tofrommaps.empty()){
+        Out << "#pragma acc data";
+        if(!tomaps.empty() || !tofrommaps.empty()){
+          Out << " copy(";
+          bool printComma = false;
+          for(auto [tomem, tosize] : tomaps){
+            if(printComma) Out << ", ";
+            printComma=true;
+            writeOperandInternal(tomem);
+            Out << "[0:";
+            writeOperandInternal(tosize);
+            Out << "]";
           }
-          if(!frommaps.empty()){
-            Out << " map(from: ";
-            bool printComma = false;
-            for(auto [frommem, fromsize] : frommaps){
-              if(printComma) Out << ", ";
-              printComma=true;
-              writeOperandInternal(frommem);
-              Out << "[0:";
-              writeOperandInternal(fromsize);
-              Out << "]";
-            }
-            Out << ")";
+          for(auto [tomem, tosize] : tofrommaps){
+            if(printComma) Out << ", ";
+            printComma=true;
+            writeOperandInternal(tomem);
+            Out << "[0:";
+            writeOperandInternal(tosize);
+            Out << "]";
           }
-          if(!tofrommaps.empty()){
-            Out << " map(tofrom: ";
-            bool printComma = false;
-            for(auto [tofrommem, tofromsize] : tofrommaps){
-              if(printComma) Out << ", ";
-              printComma=true;
-              writeOperandInternal(tofrommem);
-              Out << "[0:";
-              writeOperandInternal(tofromsize);
-              Out << "]";
-            }
-            Out << ")";
-          }
-          Out << "\n{\n";
+          Out << ")";
         }
+        Out << "\n{\n";
+      }
         continue;
       }
       if(inst->getMetadata("tulip.target.end.of.map")) continue;
