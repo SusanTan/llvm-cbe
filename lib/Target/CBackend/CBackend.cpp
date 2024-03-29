@@ -6291,6 +6291,7 @@ void CWriter::DeclareLocalVariable(Instruction *I, bool &PrintedVar, bool &isDec
      if (!canDeclareLocalLate(*I) && isNotDuplicatedDeclaration(I, false)) {
        if(declaredLocals.find(varName) != declaredLocals.end()) return;
        auto varName = GetValueName(I, true);
+       if(varName == "fputc") varName = "fputc_2";
        declaredLocals.insert(varName);
 
         errs() << "SUSAN: inst at 5950: " << *I << "\n";
