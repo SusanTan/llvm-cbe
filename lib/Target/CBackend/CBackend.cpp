@@ -6158,7 +6158,7 @@ bool CWriter::isNotDuplicatedDeclaration(Instruction *I, bool isPhi) {
 }
 
 bool CWriter::canDeclareLocalLate(Instruction &I) {
-  if(toDeclareLocals.find(&I) != toDeclareLocals.end()) return true;
+  //if(toDeclareLocals.find(&I) != toDeclareLocals.end()) return true;
 
   if (!DeclareLocalsLate) {
     return false;
