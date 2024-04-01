@@ -4300,7 +4300,7 @@ bool CWriter::doFinalization(Module &M) {
   // Output all code to the file
   std::string methods = Out.str();
   _Out.clear();
-  generateHeader(M);
+  //generateHeader(M);
   std::string header = OutHeaders.str() + Out.str();
   _Out.clear();
   _OutHeaders.clear();
